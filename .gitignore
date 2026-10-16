@@ -1,7 +1,9 @@
-dist/
 *.exe
 *.log
+*.part
 *.backup
 *.incoming
-*.new
-.DS_Store
+*.dpapi
+cookies*.txt
+reddit-auth-session-*.txt
+dist/

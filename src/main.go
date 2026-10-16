@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.3.0"
+	appDefaultVersion = "1.4.0"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -44,32 +44,30 @@ var (
 )
 
 type Job struct {
-	ID             string  `json:"id"`
-	URL            string  `json:"url"`
-	Host           string  `json:"host"`
-	Title          string  `json:"title"`
-	Status         string  `json:"status"`
-	Percent        float64 `json:"percent"`
-	Speed          string  `json:"speed"`
-	ETA            string  `json:"eta"`
-	File           string  `json:"file"`
-	Detail         string  `json:"detail"`
-	Time           string  `json:"time"`
-	AuthBrowser    string  `json:"auth_browser,omitempty"`
-	AuthRequired   bool    `json:"auth_required,omitempty"`
-	AuthCookieData []byte  `json:"-"`
-	CookiePath     string  `json:"-"`
+	ID           string  `json:"id"`
+	URL          string  `json:"url"`
+	Host         string  `json:"host"`
+	Title        string  `json:"title"`
+	Status       string  `json:"status"`
+	Percent      float64 `json:"percent"`
+	Speed        string  `json:"speed"`
+	ETA          string  `json:"eta"`
+	File         string  `json:"file"`
+	Detail       string  `json:"detail"`
+	Time         string  `json:"time"`
+	AuthRequired bool    `json:"auth_required,omitempty"`
 }
 
 type ClientState struct {
-	Version    string     `json:"version"`
-	Phase      string     `json:"phase"`
-	SetupText  string     `json:"setup_text"`
-	SetupPct   float64    `json:"setup_pct"`
-	SetupError string     `json:"setup_error"`
-	SaveDir    string     `json:"save_dir"`
-	Jobs       []*Job     `json:"jobs"`
-	AppUpdate  UpdateInfo `json:"app_update"`
+	Version         string     `json:"version"`
+	Phase           string     `json:"phase"`
+	SetupText       string     `json:"setup_text"`
+	SetupPct        float64    `json:"setup_pct"`
+	SetupError      string     `json:"setup_error"`
+	SaveDir         string     `json:"save_dir"`
+	Jobs            []*Job     `json:"jobs"`
+	AppUpdate       UpdateInfo `json:"app_update"`
+	RedditAuthReady bool       `json:"reddit_auth_ready"`
 }
 
 type App struct {
@@ -85,9 +83,8 @@ type App struct {
 	mux           *http.ServeMux
 	server        *http.Server
 	activeCmd     *exec.Cmd
-	cookieData    []byte
-	cookieName    string
 	latestRelease verifiedRelease
+	redditCookies []byte
 }
 
 func newApp(dataDir, saveDir string) *App {
@@ -103,14 +100,11 @@ func newApp(dataDir, saveDir string) *App {
 		SetupText: "다운로드 도구 확인 중...",
 		SaveDir:   saveDir,
 		Jobs:      make([]*Job, 0),
-		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 정보 확인 중"},
-	}
-	if leftovers, _ := filepath.Glob(filepath.Join(a.dataDir, "cookies-session-*.txt")); len(leftovers) > 0 {
-		for _, path := range leftovers {
-			_ = os.Remove(path)
-		}
+		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
 	a.loadHistory()
+	a.loadRememberedRedditAuth()
+	a.removeOrphanedCookieFiles()
 	a.routes()
 	return a
 }
@@ -134,9 +128,7 @@ func (a *App) routes() {
 	})
 	// Serve the app's distinctive tab icon from the executable (no extra files needed).
 	for _, asset := range []struct{ path, mediaType string }{
-		
 		{"/favicon.svg", "image/svg+xml"},
-		
 	} {
 		asset := asset
 		mux.HandleFunc("GET "+asset.path, func(w http.ResponseWriter, r *http.Request) {
@@ -166,9 +158,9 @@ func (a *App) routes() {
 		writeJSON(w, 200, state)
 	})
 	mux.HandleFunc("POST /api/download", a.downloadHandler)
-	mux.HandleFunc("POST /api/upload-cookies", a.uploadCookiesHandler)
-	mux.HandleFunc("POST /api/clear-cookies", a.clearCookiesHandler)
 	mux.HandleFunc("POST /api/update-tool", a.updateToolHandler)
+	mux.HandleFunc("POST /api/upload-reddit-cookies", a.uploadRedditCookiesHandler)
+	mux.HandleFunc("POST /api/clear-reddit-cookies", a.clearRedditCookiesHandler)
 	mux.HandleFunc("POST /api/check-app-update", a.checkAppUpdateHandler)
 	mux.HandleFunc("POST /api/install-app-update", a.installAppUpdateHandler)
 	mux.HandleFunc("POST /api/open-folder", func(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +204,11 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 }
 
 func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	// The web page only controls the downloader listening on this machine.
 	host := r.Host
 	if !strings.HasPrefix(host, "127.0.0.1:") && !strings.HasPrefix(host, "localhost:") {
@@ -220,7 +217,7 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodPost {
 		origin := r.Header.Get("Origin")
-		if origin != "" && origin != "http://"+host {
+		if origin != "http://"+host {
 			http.Error(w, "Invalid origin", http.StatusForbidden)
 			return
 		}
@@ -251,87 +248,55 @@ func cleanURL(raw string) (string, string, error) {
 	if u.Port() != "" && u.Port() != "80" && u.Port() != "443" {
 		return "", "", errors.New("기본 웹 포트 이외의 링크는 지원하지 않습니다")
 	}
+	if !approvedVideoHost(host) {
+		return "", "", errors.New("회사 PC 안전판에서는 검증된 영상 사이트 링크만 지원해요")
+	}
 	if len(raw) > 4096 {
 		return "", "", errors.New("링크가 너무 깁니다")
+	}
+	// A redd.it/<post_id> link is the same post as reddit.com/comments/<post_id>.
+	// Canonicalizing it avoids the generic extractor and a needless redirect.
+	if host == "redd.it" || host == "www.redd.it" {
+		postID := strings.Trim(u.Path, "/")
+		if regexp.MustCompile(`^[a-zA-Z0-9]{5,10}$`).MatchString(postID) {
+			u.Host = "www.reddit.com"
+			u.Path = "/comments/" + postID + "/"
+			u.RawQuery = ""
+			host = "www.reddit.com"
+		}
 	}
 	u.Fragment = ""
 	return u.String(), host, nil
 }
 
-func (a *App) uploadCookiesHandler(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, (2<<20)+8192)
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		writeError(w, 415, "Use multipart/form-data.")
-		return
+// Allow listed public video platforms only. Domain boundaries are checked.
+func approvedVideoHost(host string) bool {
+	allowed := []string{
+		"reddit.com", "redd.it", "v.redd.it", "youtube.com", "youtu.be",
+		"x.com", "twitter.com", "tiktok.com", "instagram.com",
+		"facebook.com", "fb.watch", "vimeo.com", "streamable.com",
+		"twitch.tv", "imgur.com",
 	}
-	reader, err := r.MultipartReader()
-	if err != nil {
-		writeError(w, 400, "Invalid cookies.txt upload.")
-		return
+	for _, domain := range allowed {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
 	}
-	part, err := reader.NextPart()
-	if err != nil || part.FormName() != "cookies" || part.FileName() == "" {
-		writeError(w, 400, "Select a cookies.txt file.")
-		return
-	}
-	// Avoid loading unlimited text or writing raw browser secrets to an upload folder.
-	data, err := io.ReadAll(io.LimitReader(part, 2<<20))
-	if err != nil || len(data) >= 2<<20 || len(data) == 0 {
-		writeError(w, 400, "Cookie file is empty or exceeds 2 MB.")
-		return
-	}
-	header := strings.TrimPrefix(string(data), "\ufeff")
-	if !strings.HasPrefix(header, "# Netscape HTTP Cookie File") && !strings.HasPrefix(header, "# HTTP Cookie File") {
-		writeError(w, 400, "Cookie file must use Netscape cookies.txt format.")
-		return
-	}
-	// Only retain the user-selected cookie data in memory until this app exits.
-	a.mu.Lock()
-	for i := range a.cookieData {
-		a.cookieData[i] = 0
-	}
-	a.cookieData = append([]byte(nil), data...)
-	a.cookieName = filepath.Base(part.FileName())
-	name := a.cookieName
-	a.mu.Unlock()
-	writeJSON(w, 200, map[string]any{"ok": true, "file": name})
-}
-
-func (a *App) clearCookiesHandler(w http.ResponseWriter, r *http.Request) {
-	a.mu.Lock()
-	for i := range a.cookieData {
-		a.cookieData[i] = 0
-	}
-	a.cookieData = nil
-	a.cookieName = ""
-	a.mu.Unlock()
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	return false
 }
 
 func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 32768)
 	var req struct {
-		URLs        string `json:"urls"`
-		AuthBrowser string `json:"auth_browser"`
+		URLs string `json:"urls"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
 		writeError(w, 400, "링크를 읽지 못했습니다.")
 		return
 	}
 	matches := urlRE.FindAllString(req.URLs, -1)
-	if !supportedBrowser(req.AuthBrowser) {
-		writeError(w, 400, "지원하지 않는 브라우저입니다. 브라우저를 다시 선택해 주세요.")
-		return
-	}
-	if req.AuthBrowser == "file" {
-		a.mu.Lock()
-		hasCookie := len(a.cookieData) > 0
-		a.mu.Unlock()
-		if !hasCookie {
-			writeError(w, 400, "Import cookies.txt before downloading.")
-			return
-		}
-	}
 	if len(matches) == 0 {
 		writeError(w, 400, "영상 링크를 입력해 주세요.")
 		return
@@ -365,13 +330,6 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		a.state.Jobs = append([]*Job{{
 			ID: id, URL: it.u, Host: it.h, Title: "제목 확인 중...", Status: "queued",
 			Time: time.Now().Format("2006-01-02 15:04"), Detail: "다운로드 대기 중",
-			AuthBrowser: req.AuthBrowser,
-			AuthCookieData: func() []byte {
-				if req.AuthBrowser == "file" {
-					return append([]byte(nil), a.cookieData...)
-				}
-				return nil
-			}(),
 		}}, a.state.Jobs...)
 		added = append(added, id)
 	}
@@ -511,18 +469,11 @@ func (a *App) worker() {
 	}
 }
 
-// supportedBrowser prevents caller-controlled command-line flags and unexpected browser profiles.
-// An empty value means public download without touching the user's browser data.
-func supportedBrowser(browser string) bool {
-	switch browser {
-	case "", "chrome", "edge", "firefox", "brave", "file":
-		return true
-	default:
-		return false
-	}
+func (a *App) downloadArgs(j *Job) []string {
+	return a.downloadArgsForAttempt(j, false)
 }
 
-func (a *App) downloadArgs(j *Job) []string {
+func (a *App) downloadArgsForAttempt(j *Job, impersonate bool) []string {
 	args := []string{
 		"--ignore-config", "--no-playlist", "--newline", "--progress",
 		"--progress-template", "download:CLIP_PROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
@@ -536,13 +487,34 @@ func (a *App) downloadArgs(j *Job) []string {
 	if a.ffmpeg != "" {
 		args = append(args, "--ffmpeg-location", filepath.Dir(a.ffmpeg))
 	}
-	// Only read browser login cookies when the user explicitly opted in per job.
-	if j.AuthBrowser == "file" && j.CookiePath != "" {
-		args = append(args, "--cookies", j.CookiePath)
-	} else if j.AuthBrowser != "" && j.AuthBrowser != "file" && supportedBrowser(j.AuthBrowser) {
-		args = append(args, "--cookies-from-browser", j.AuthBrowser)
+	// This changes only the HTTP client fingerprint. It does NOT open Chrome,
+	// read its cookie database or access any logged-in account.
+	if impersonate && isRedditHost(j.Host) {
+		args = append(args, "--impersonate", "chrome")
 	}
 	return append(args, j.URL)
+}
+
+func isRedditHost(host string) bool {
+	host = strings.ToLower(host)
+	for _, domain := range []string{"reddit.com", "redd.it"} {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
+// Retry only Reddit authorization or HTTP 403 failures. Do not hammer Reddit
+// on HTTP 429 rate limits, which can make its anti-abuse block worse.
+func shouldRetryReddit(msg string) bool {
+	s := strings.ToLower(msg)
+	if strings.Contains(s, "429") || strings.Contains(s, "too many requests") {
+		return false
+	}
+	return needsAuth(msg) || strings.Contains(s, "http error 403") ||
+		strings.Contains(s, "403 forbidden") || strings.Contains(s, "403: blocked") ||
+		strings.Contains(s, "failed to parse json")
 }
 
 func (a *App) runDownload(id string) {
@@ -550,53 +522,71 @@ func (a *App) runDownload(id string) {
 	if j == nil {
 		return
 	}
-	defer a.mutateJob(id, func(j *Job) { j.AuthCookieData = nil; j.CookiePath = "" })
-	if j.AuthBrowser == "file" {
-		if len(j.AuthCookieData) == 0 {
-			a.failJob(id, "No cookies.txt is available for this download.")
-			return
-		}
-		if err := os.MkdirAll(a.dataDir, 0700); err != nil {
-			a.failJob(id, "Temporary cookie directory failure.")
-			return
-		}
-		f, err := os.CreateTemp(a.dataDir, "cookies-session-*.txt")
-		if err != nil {
-			a.failJob(id, "Cannot create temporary cookie file.")
-			return
-		}
-		j.CookiePath = f.Name()
-		defer os.Remove(j.CookiePath)
-		_ = f.Chmod(0600)
-		_, err = f.Write(j.AuthCookieData)
-		closeErr := f.Close()
-		if err != nil || closeErr != nil {
-			a.failJob(id, "Cannot prepare temporary cookie file.")
-			return
-		}
-	}
 	a.mutateJob(id, func(j *Job) {
 		j.Status = "downloading"
 		j.Percent = 0
 		j.Detail = "영상 정보를 가져오는 중..."
 	})
-	args := a.downloadArgs(j)
+
+	err, msg := a.runDownloadAttempt(id, j, false)
+	redditNeedsRetry := err != nil && isRedditHost(j.Host) && shouldRetryReddit(msg)
+	if redditNeedsRetry {
+		a.mutateJob(id, func(j *Job) {
+			j.Detail = "레딧 접근 제한으로 다른 연결 방식을 자동 시도 중..."
+			j.Percent = 0
+		})
+		err, msg = a.runDownloadAttempt(id, j, true)
+	}
+	// Third and final attempt uses only the explicitly imported Reddit-scoped
+	// cookies. No Chrome profile or other website's credentials are read.
+	if err != nil && redditNeedsRetry {
+		cookieData := a.copyRedditCookies()
+		if len(cookieData) > 0 {
+			a.mutateJob(id, func(j *Job) { j.Detail = "레딧 전용 로그인으로 마지막 재시도 중..."; j.Percent = 0 })
+			err, msg = a.runDownloadWithRedditCookies(id, j, cookieData)
+			for i := range cookieData {
+				cookieData[i] = 0
+			}
+		}
+	}
+	if err != nil {
+		if msg == "" {
+			msg = err.Error()
+		}
+		a.mutateJob(id, func(j *Job) {
+			j.Status = "error"
+			j.AuthRequired = needsAuth(msg) || redditNeedsRetry
+			j.Detail = cut(friendlyError(msg), 520)
+		})
+		return
+	}
+	a.mutateJob(id, func(j *Job) {
+		j.Status, j.Percent, j.Speed, j.ETA = "done", 100, "", ""
+		j.Detail = "원본 스트림 다운로드 완료"
+	})
+}
+
+func (a *App) runDownloadAttempt(id string, j *Job, impersonate bool, cookieFile ...string) (error, string) {
+	args := a.downloadArgsForAttempt(j, impersonate)
+	if len(cookieFile) > 0 && isRedditHost(j.Host) {
+		var err error
+		args, err = addCookieArg(args, cookieFile[0])
+		if err != nil {
+			return err, ""
+		}
+	}
 	cmd := exec.Command(a.ytDlp, args...)
-	// yt-dlp never needs stdin; don't let subprocess prompt for credentials.
 	cmd.Stdin = nil
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		a.failJob(id, "실행 실패: "+err.Error())
-		return
+		return err, ""
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		a.failJob(id, "로그 읽기 실패: "+err.Error())
-		return
+		return err, ""
 	}
 	if err := cmd.Start(); err != nil {
-		a.failJob(id, "프로그램 시작 실패: "+err.Error())
-		return
+		return err, ""
 	}
 	a.mu.Lock()
 	a.activeCmd = cmd
@@ -635,7 +625,6 @@ func (a *App) runDownload(id string) {
 				errLines = errLines[1:]
 			}
 			linesMu.Unlock()
-			// Some versions send progress info to stderr.
 			if strings.Contains(s, "CLIP_") {
 				a.parseOutput(id, s)
 			}
@@ -647,20 +636,9 @@ func (a *App) runDownload(id string) {
 		linesMu.Lock()
 		msg := strings.Join(errLines, "\n")
 		linesMu.Unlock()
-		if msg == "" {
-			msg = err.Error()
-		}
-		a.mutateJob(id, func(j *Job) {
-			j.Status = "error"
-			j.AuthRequired = needsAuth(msg)
-			j.Detail = cut(friendlyError(msg, j.AuthBrowser), 520)
-		})
-		return
+		return err, msg
 	}
-	a.mutateJob(id, func(j *Job) {
-		j.Status, j.Percent, j.Speed, j.ETA = "done", 100, "", ""
-		j.Detail = "원본 스트림 다운로드 완료"
-	})
+	return nil, ""
 }
 
 func (a *App) parseOutput(id, line string) {
@@ -708,22 +686,15 @@ func needsAuth(msg string) bool {
 		strings.Contains(s, "authentication required")
 }
 
-func friendlyError(msg, authBrowser string) string {
+func friendlyError(msg string) string {
 	s := strings.ToLower(msg)
 	switch {
-	case strings.Contains(s, "could not decrypt"), strings.Contains(s, "failed to decrypt"), strings.Contains(s, "app-bound encryption"), strings.Contains(s, "failed to load cookies"):
-		return "브라우저의 로그인 쿠키를 읽지 못했어요. 브라우저 종료 후 재시도하거나 Firefox에 로그인하여 Firefox를 선택해 보세요.\n" + tailMsg(msg)
-	case strings.Contains(s, "could not copy") && strings.Contains(s, "cookie"), strings.Contains(s, "database is locked"):
-		return "Chrome/Edge cookie DB access failed. Try Firefox (logged in) or import a local cookies.txt without closing Chrome.\n" + tailMsg(msg)
 	case needsAuth(msg):
-		if authBrowser == "" {
-			return "사이트에서 로그인 인증을 요구했어요. Reddit에 로그인한 브라우저를 선택하고 [이 링크 재시도]를 누르세요.\n" + tailMsg(msg)
-		}
-		return "브라우저 인증을 시도했지만 사이트에서 거절했어요. 선택한 브라우저에 로그인되어 있는지 확인해 주세요.\n" + tailMsg(msg)
+		return "레딧에서 로그인을 요구했어. 아래 [레딧 인증 연결]에 레딧 전용 cookies.txt를 등록한 뒤 재시도해 줘.\n" + tailMsg(msg)
+	case strings.Contains(s, "403"), strings.Contains(s, "429"):
+		return "사이트에서 접근을 제한했어. 레딧이라면 /comments/가 포함된 원본 게시물 주소로 시도해 줘.\n" + tailMsg(msg)
 	case strings.Contains(s, "private"), strings.Contains(s, "not available"), strings.Contains(s, "unavailable"):
 		return "영상이 비공개·삭제됐거나 해당 주소의 형식을 지원하지 않을 수 있어요.\n" + tailMsg(msg)
-	case strings.Contains(s, "403"), strings.Contains(s, "429"):
-		return "사이트에서 접근을 제한하고 있어요. 잠시 후 다시 시도해 주세요.\n" + tailMsg(msg)
 	default:
 		return tailMsg(msg)
 	}
@@ -750,7 +721,7 @@ func (a *App) failJob(id, msg string) {
 }
 
 func (a *App) bootstrap() {
-	if os.Getenv("CLIPCATCH_SKIP_BOOTSTRAP") == "1" {
+	if runtime.GOOS != "windows" && os.Getenv("CLIPCATCH_SKIP_BOOTSTRAP") == "1" {
 		a.ytDlp = os.Getenv("CLIPCATCH_YTDLP")
 		a.ffmpeg = os.Getenv("CLIPCATCH_FFMPEG")
 		a.setSetup("ready", "테스트 준비 완료", "", 100)
@@ -770,8 +741,10 @@ func (a *App) bootstrap() {
 		exe += ".exe"
 		ffbin += ".exe"
 	}
-	if found, err := exec.LookPath(exe); err == nil {
-		a.ytDlp = found
+	if runtime.GOOS != "windows" {
+		if found, err := exec.LookPath(exe); err == nil {
+			a.ytDlp = found
+		}
 	}
 	if a.ytDlp == "" && nonempty(filepath.Join(a.toolDir, exe)) {
 		a.ytDlp = filepath.Join(a.toolDir, exe)
@@ -798,8 +771,10 @@ func (a *App) bootstrap() {
 		a.ytDlp = dest
 	}
 	a.setSetup("preparing", "FFmpeg를 확인하는 중...", "", 0)
-	if found, err := exec.LookPath(ffbin); err == nil {
-		a.ffmpeg = found
+	if runtime.GOOS != "windows" {
+		if found, err := exec.LookPath(ffbin); err == nil {
+			a.ffmpeg = found
+		}
 	}
 	if a.ffmpeg == "" && nonempty(filepath.Join(a.toolDir, ffbin)) {
 		a.ffmpeg = filepath.Join(a.toolDir, ffbin)
@@ -1008,8 +983,6 @@ func (a *App) saveHistory() {
 	for _, j := range a.state.Jobs {
 		if j.Status == "done" || j.Status == "error" {
 			cp := *j
-			cp.AuthCookieData = nil
-			cp.CookiePath = ""
 			list = append(list, &cp)
 		}
 		if len(list) >= 50 {

@@ -20,47 +20,42 @@
     .section-head{display:flex;justify-content:space-between;align-items:center;margin:20px 0 16px}.section-title{font-size:19px;font-weight:820;letter-spacing:-.65px}.count{font-size:12px;color:#a7b2c1;border-radius:8px;border:1px solid #394252;padding:5px 10px}.history{display:flex;flex-direction:column;gap:10px;min-height:104px}.empty{display:flex;align-items:center;gap:15px;padding:28px;background:#151a22;border-radius:17px;border:1px dashed #3d4653}.empty svg{color:#718093}.empty b{font-size:13px}.empty p{color:#8794a4;font-size:12px;margin:6px 0 0}.job{padding:18px 19px;background:#181e28;border:1px solid #303948;border-radius:16px}.job-top{display:flex;justify-content:space-between;align-items:center;gap:15px}.job-title{font-size:13px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:680px}.job-url{color:#8393a4;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:7px;max-width:790px}.job-status{font-size:11px;font-weight:780;padding:6px 10px;border-radius:9px;white-space:nowrap}.job-status.downloading{color:#cceca2;background:#34452c}.job-status.queued{color:#b8c8d6;background:#2a3442}.job-status.done{color:#d6ffa2;background:#314628}.job-status.error{color:#ffb6bd;background:#4b303a}.job-bottom{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:13px;color:#98a7b9;font-size:11px}.job-detail{line-height:1.6;overflow-wrap:anywhere;white-space:pre-line;min-width:0}.meter{height:5px;margin-top:12px;background:#303846;border-radius:4px;overflow:hidden}.meter>div{height:100%;background:var(--lime);transition:width .35s}.job.error{border-color:#704550}.job.error .job-detail{color:#ffc2c7}.job.done .job-detail{color:#acd38c}.muted{color:#8290a1}
     .footer{padding-top:33px;color:#6f7c8d;font-size:12px;line-height:1.9;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.footer small{font-size:11px}.update-btn{border:1px solid #3c4654;background:transparent;color:#a9bbcd;border-radius:9px;font-size:11px;font-weight:650;padding:7px 9px;cursor:pointer;margin-left:12px}.update-btn:hover{border-color:#a1b48b;color:#d9ff57}.hidden{display:none!important}.notice{font-size:12px;color:var(--red);line-height:1.7;margin:11px 0 0;display:none}.notice.show{display:block}
 
-    .auth-line{margin-top:16px;padding:14px 16px;border:1px solid #3d4757;background:#151c25;border-radius:13px;display:flex;align-items:center;gap:13px;flex-wrap:wrap}
-    .auth-line label{font-size:12px;font-weight:780;color:#dfe8ef}
-    .auth-line select{background:#293442;color:#f1f4f9;border:1px solid #566272;border-radius:9px;padding:10px 13px;min-width:186px;font-size:12px;outline:none;cursor:pointer}
-    .auth-line select:focus{border-color:var(--lime)}
-    .auth-help{font-size:11px;color:#9facbd;line-height:1.5;flex:1;min-width:210px}
-    .cookie-import{margin-top:10px;background:#222a2c;border:1px solid #505f4c;padding:14px 16px;border-radius:13px;color:#b9c7d1;font-size:12px;line-height:1.7}
-    .cookie-import-title{font-weight:730;color:#e7f0e9}
-    .cookie-import-actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:9px}
-    .cookie-import input{font-size:12px;max-width:100%;color:#dbe6d9}
-    .cookie-import p{margin:7px 0 0;color:#a4b3bd;font-size:11px}
-    .cookie-clear{border:1px solid #48585d;background:#252d35;border-radius:7px;color:#ced7dd;padding:7px 13px;font-size:12px}
     .retry-btn{border:1px solid #62723d;background:#2b3622;color:#e4ffa3;border-radius:9px;font-size:11px;font-weight:770;padding:8px 11px;margin-top:10px;cursor:pointer}
     .retry-btn:hover{background:#394927}
-    .app-update{background:#1e2725;border:1px solid #7b914f;border-radius:14px;margin:0 0 22px;padding:15px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-    .app-update .app-version{color:#d9ff57;font-size:12px;font-weight:800}
-    .app-update .app-status{color:#dae3da;font-size:13px;font-weight:760;margin:4px 0}
-    .app-update .app-detail{color:#aebdb0;font-size:12px}
-    .app-update button{background:#d9ff57;color:#16200a;border:0;border-radius:9px;padding:11px 15px;font-weight:800;font-size:12px;cursor:pointer}
-    .app-update button:disabled{opacity:.45;cursor:wait}
     @media(max-width:670px){.wrap{width:calc(100% - 28px);padding-top:15px}.navbar{padding-bottom:42px}.brand{font-size:18px}.close-app{padding:8px}.hero h1{font-size:35px;letter-spacing:-1.5px}.hero p{font-size:13px;margin-bottom:24px}.entry{padding:19px 16px 20px}.shortcut{display:none}.action-row{flex-direction:column;align-items:stretch}.mainbutton{width:100%}.bottom-strip{padding:16px}.support{text-align:center}.save-info .dir{max-width:220px}.section-title{font-size:17px}.job-title{max-width:210px}.perks{margin-bottom:29px}.local{font-size:11px}}
-  </style>
+
+    .app-update{background:#1e2725;border:1px solid #7b914f;border-radius:14px;margin:0 0 22px;padding:15px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    .app-update .app-version{color:#d9ff57;font-size:12px;font-weight:800}.app-update .app-status{color:#dae3da;font-size:13px;font-weight:760;margin:4px 0}.app-update .app-detail{color:#aebdb0;font-size:12px}
+    .app-update button,.reddit-auth-controls button{background:#d9ff57;color:#16200a;border:0;border-radius:9px;padding:10px 13px;font-weight:800;font-size:12px;cursor:pointer}
+    .app-update button:disabled{opacity:.45;cursor:wait}
+    .reddit-auth{margin-top:17px;padding:11px 14px;border:1px solid #354458;border-radius:12px;background:#141d26;color:#b7c6d0;font-size:12px}
+    .reddit-auth summary{cursor:pointer;color:#bcd4ce;font-weight:780}.reddit-auth p{line-height:1.7;color:#9eacba}.reddit-auth-controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.reddit-auth-controls input{font-size:11px;max-width:280px}
+    .reddit-auth-controls .plain-btn{background:#303846;color:#d9e4ee;border:1px solid #536074}.remember{margin:11px 0 7px;display:flex;align-items:center;gap:7px;font-size:11px;color:#a4b4c6}
+    .reddit-auth-status{color:#aaca8b;margin-top:9px;font-size:12px}
+
+      .safe-note{margin:14px 0 4px;padding:12px 16px;border:1px solid #485743;border-radius:12px;color:#c3d8b2;background:#1e2a24;font-size:12px;}
+</style>
 </head>
 <body>
   <div class="wrap">
     <header class="navbar">
       <div class="brand">
         <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m-5-5 5 5 5-5"/><path d="M4 17v3h16v-3"/></svg></div>
-        <div class="brand-word">Clip<span>Catch</span></div>
+        <div class="brand-word">Clip<span>Catch</span> <small style="font-size:10px;color:#d9ff57">1.4</small></div>
       </div>
       <div class="topright"><span class="local"><i></i> 내 PC에서 실행 중</span><button id="quitBtn" class="close-app" title="프로그램 종료">종료</button></div>
     </header>
 
-    <div id="appUpdate" class="app-update hidden" role="status" aria-live="polite">
-      <div><div id="appUpdateVersion" class="app-version">CLIPCATCH UPDATE</div><div id="appUpdateStatus" class="app-status"></div><div id="appUpdateDetail" class="app-detail"></div></div>
-      <button id="installAppUpdate" type="button" class="hidden">업데이트 설치</button>
-    </div>
-
     <div class="hero">
       <div class="eyebrow">HIGH QUALITY VIDEO DOWNLOADER</div>
       <h1>링크 하나로,<br/><em>원본 그대로 저장.</em></h1>
-      <p>레딧, X, 유튜브, 인스타그램 등에서 찾은 영상을 주소만 붙여넣어 저장하세요.<br/>화질과 프레임을 임의로 낮추지 않고, 영상과 소리를 자동으로 합칩니다.</p>
+      <p>레딧, X, 유튜브, 인스타그램 등 공개 영상을 주소만 붙여넣어 저장하세요.<br/>다른 사이트 로그인 정보는 읽지 않고, 프로그램 업데이트는 확인 후 버튼 한 번으로 설치할 수 있어요.</p>
+    </div>
+
+
+    <div id="appUpdate" class="app-update hidden" role="status" aria-live="polite">
+      <div><div id="appUpdateVersion" class="app-version">CLIPCATCH UPDATE</div><div id="appUpdateStatus" class="app-status"></div><div id="appUpdateDetail" class="app-detail"></div></div>
+      <button id="installAppUpdate" type="button" class="hidden">업데이트 설치</button>
     </div>
 
     <section class="main-card" aria-label="영상 다운로드">
@@ -71,22 +66,20 @@
           <button class="paste" id="pasteBtn" type="button" aria-label="클립보드에서 붙여넣기"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="4" width="12" height="16" rx="2"/><path d="M4 8v12a2 2 0 0 0 2 2h10"/></svg> 붙여넣기</button>
         </div>
         <div class="info-line"><p>공개된 영상 링크를 넣어주세요. 플랫폼 정책상 일부 영상은 제한될 수 있어요.</p><span class="input-count" id="urlCount">0 / 10</span></div>
-        <div class="auth-line"><label for="authBrowser">로그인 브라우저</label>
-          <select id="authBrowser" aria-label="로그인 인증에 사용할 브라우저">
-            <option value="">사용 안 함 (기본)</option>
-            <option value="chrome">Chrome (크롬)</option>
-            <option value="edge">Edge (엣지)</option>
-            <option value="firefox">Firefox (파이어폭스) - recommended</option>
-            <option value="brave">Brave (브레이브)</option>
-            <option value="file">cookies.txt (local file; Chrome can stay open)</option>
-          </select>
-          <span class="auth-help">Reddit에서 로그인 오류가 나면, Reddit에 로그인한 브라우저를 선택하세요. 브라우저 쿠키는 선택 시에만 PC에서 읽습니다.</span>
-        </div>
-        <div class="cookie-import hidden" id="cookieImport">
-          <div class="cookie-import-title">Browser cookie database locked? Import cookies.txt instead.</div>
-          <div class="cookie-import-actions"><input id="cookieFile" type="file" accept=".txt,text/plain" aria-label="Select a Netscape cookies.txt file"/><button type="button" id="clearCookieBtn" class="cookie-clear">Clear</button></div>
-          <p id="cookieStatus">Cookie files are sensitive login secrets. Keep them private. ClipCatch uses them only on this PC, in memory until exit and as temporary files for yt-dlp.</p>
-        </div>
+        <div class="safe-note">회사 PC 보호 · Chrome 전체 로그인 정보 접근 없음 · 업데이트는 확인 후 설치</div>
+
+        <details id="redditAuthDetails" class="reddit-auth">
+          <summary>레딧에서 로그인 요구할 때만 · 레딧 인증 연결</summary>
+          <p>공개 영상은 연결 없이 받아져. 로그인 요구 영상만 레딧 사이트의 <b>cookies.txt</b> 파일을 선택해 줘.<br>Chrome 전체 로그인 정보는 읽지 않고, 레딧 쿠키만 골라 사용해.</p>
+          <div class="reddit-auth-controls">
+            <input id="redditCookieFile" type="file" accept=".txt,text/plain" aria-label="레딧 cookies.txt 파일"/>
+            <button id="redditCookieUpload" type="button">레딧 인증 등록</button>
+            <button id="redditCookieClear" type="button" class="plain-btn">인증 삭제</button>
+          </div>
+          <label class="remember"><input id="rememberRedditAuth" type="checkbox"/> 이 Windows 계정에 레딧 인증 기억하기 (Windows 암호화)</label>
+          <div id="redditAuthStatus" class="reddit-auth-status">인증 미등록 · 공개 영상은 그대로 이용 가능</div>
+        </details>
+
         <p class="notice" id="inputNotice"></p>
         <div class="action-row">
           <button id="downloadBtn" class="mainbutton" type="button"><svg class="tiny-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m-5-5 5 5 5-5"/><path d="M4 17v3h16v-3"/></svg> 다운로드 시작</button>
@@ -118,7 +111,7 @@
         <div class="empty"><svg width="33" height="33" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4V8z"/></svg><div><b>아직 다운로드한 영상이 없어요</b><p>위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.</p></div></div>
       </div>
     </section>
-    <footer class="footer"><div>ClipCatch v__APP_VERSION__ · 내 컴퓨터에서만 동작하는 로컬 웹 도구 <button class="update-btn" id="updateBtn" type="button">다운로드 엔진 업데이트</button><button class="update-btn" id="checkAppUpdate" type="button">프로그램 업데이트 확인</button></div><small>저작권·재게시 권한을 확인한 영상만 이용해 주세요.</small></footer>
+    <footer class="footer"><div>ClipCatch v__APP_VERSION__ · 내 컴퓨터에서만 작동 <button class="update-btn" id="updateBtn" type="button">영상 엔진 업데이트</button><button class="update-btn" id="checkAppUpdate" type="button">새 버전 확인</button></div><small>저작권·재게시 권한을 확인한 영상만 이용해 주세요.</small></footer>
   </div>
   <script>
     const $ = id => document.getElementById(id);
@@ -127,27 +120,6 @@
     const uiVersion = '__APP_VERSION__';
     let loading = false;
     let lastHistorySignature = '';
-    // Save only the browser name, never login cookies or passwords.
-    try { const saved = localStorage.getItem('clipcatch_auth_browser') || ''; if (['','chrome','edge','firefox','brave'].includes(saved)) $('authBrowser').value=saved; } catch(e) {}
-    function switchAuthMode() {
-      $('cookieImport').classList.toggle('hidden', $('authBrowser').value !== 'file');
-      try { localStorage.setItem('clipcatch_auth_browser', $('authBrowser').value === 'file' ? '' : $('authBrowser').value); } catch(e) {}
-    }
-    $('authBrowser').addEventListener('change',switchAuthMode);
-    switchAuthMode();
-    $('cookieFile').addEventListener('change',async()=>{
-      const file = $('cookieFile').files[0]; if(!file)return;
-      const form=new FormData(); form.append('cookies',file);
-      try {
-        const res=await fetch('/api/upload-cookies',{method:'POST',body:form});
-        const result=await res.json(); if(!res.ok)throw new Error(result.error||'Failed to import cookie file');
-        toText($('cookieStatus'),'Loaded: '+result.file+'. Cookie data stays on this PC for this session.'); notice('');
-      } catch(e){toText($('cookieStatus'),'Import failed: '+e.message);} finally {$('cookieFile').value='';}
-    });
-    $('clearCookieBtn').addEventListener('click',async()=>{
-      try {await post('/api/clear-cookies');toText($('cookieStatus'),'Session cookie data cleared.');notice('');}
-      catch(e){notice(e.message)}
-    });
     const toText = (el, txt) => {el.textContent = txt == null ? '' : String(txt);};
     function parseUrls(s) { return (s.match(/https?:\/\/[^\s\"<>]+/g) || []).filter(Boolean); }
     function notice(msg) { toText($('inputNotice'), msg); $('inputNotice').classList.toggle('show', !!msg); }
@@ -180,7 +152,7 @@
       $('downloadBtn').disabled = true;
       $('downloadBtn').lastChild.textContent = ' 추가하는 중...';
       try {
-        await post('/api/download', {urls:$('urlInput').value,auth_browser:$('authBrowser').value});
+        await post('/api/download', {urls:$('urlInput').value});
         $('urlInput').value = ''; updateCount(); notice('');
         await poll();
       } catch (err) { notice(err.message); }
@@ -194,18 +166,30 @@
       catch(e) {notice(e.message);window.scrollTo({top:240,behavior:'smooth'});}
       finally {$('updateBtn').disabled=false;}
     });
-    $('checkAppUpdate').addEventListener('click', async ()=>{
-      $('checkAppUpdate').disabled = true;
-      try { await post('/api/check-app-update'); }
-      catch(e) {notice(e.message);}
-      finally { $('checkAppUpdate').disabled = false; }
+
+    $('redditCookieUpload').addEventListener('click', async ()=>{
+      const file=$('redditCookieFile').files[0];
+      if(!file){notice('레딧 cookies.txt 파일을 선택해 줘');return;}
+      const data=new FormData();data.append('cookies',file);data.append('remember',$('rememberRedditAuth').checked?'yes':'no');
+      $('redditCookieUpload').disabled=true;
+      try {const resp=await fetch('/api/upload-reddit-cookies',{method:'POST',body:data});const out=await resp.json();if(!resp.ok)throw Error(out.error||'레딧 인증 연결에 실패했어');
+        toText($('redditAuthStatus'),'레딧 인증 등록 완료 · 제한 영상에서 자동으로 사용');$('redditCookieFile').value='';notice('');await poll();
+      } catch(err){notice(err.message);}
+      finally{$('redditCookieUpload').disabled=false;}
     });
-    $('installAppUpdate').addEventListener('click', async ()=>{
-      if (!confirm('다운로드 작업을 완료한 다음 ClipCatch를 업데이트하고 다시 실행할까요?')) return;
-      $('installAppUpdate').disabled = true;
-      try {await post('/api/install-app-update'); await poll();}
-      catch(e) {notice(e.message); $('installAppUpdate').disabled=false;}
+    $('redditCookieClear').addEventListener('click',async()=>{
+      try{await post('/api/clear-reddit-cookies');toText($('redditAuthStatus'),'인증 삭제 완료');$('rememberRedditAuth').checked=false;await poll();}catch(err){notice(err.message)}
     });
+    $('checkAppUpdate').addEventListener('click',async()=>{
+      $('checkAppUpdate').disabled=true;
+      try{await post('/api/check-app-update');notice('');}catch(err){notice(err.message);}finally{$('checkAppUpdate').disabled=false;}
+    });
+    $('installAppUpdate').addEventListener('click',async()=>{
+      if(!confirm('ClipCatch 새 버전을 설치하고 다시 실행할까?'))return;
+      $('installAppUpdate').disabled=true;
+      try{await post('/api/install-app-update');await poll();}catch(err){notice(err.message);$('installAppUpdate').disabled=false;}
+    });
+
     $('quitBtn').addEventListener('click', async ()=>{
       if (!confirm('ClipCatch를 종료할까요? 진행 중인 다운로드도 중단됩니다.')) return;
       try { await post('/api/stop'); } catch (e) {}
@@ -232,10 +216,15 @@
       if(j.status==='error') {
         const retry=document.createElement('button'); retry.className='retry-btn';retry.type='button';toText(retry,'이 링크 재시도');
         retry.addEventListener('click',()=>{
-          if (j.auth_required && !$('authBrowser').value) {notice('먼저 Reddit에 로그인한 브라우저를 선택해 주세요.');$('authBrowser').focus();window.scrollTo({top:200,behavior:'smooth'});return;}
           $('urlInput').value=j.url;updateCount();submitLinks();
         });
         elem.appendChild(retry);
+        if (j.auth_required && /reddit\.com|redd\.it/i.test(j.host || '')) {
+          const auth=document.createElement('button');auth.type='button';auth.className='retry-btn';
+          toText(auth,'레딧 로그인 연결하기');
+          auth.addEventListener('click',()=>{$('redditAuthDetails').open=true;$('redditAuthDetails').scrollIntoView({behavior:'smooth'});});
+          elem.appendChild(auth);
+        }
       }
       return elem;
     }
@@ -243,14 +232,15 @@
       if (!st) return;lastState=st;
       if (st.version && st.version!==uiVersion){window.location.reload();return;}
       const upd=st.app_update||{};
-      const status=upd.status||'';
-      const visible=['available','downloading','installing','error'].includes(status);
-      $('appUpdate').classList.toggle('hidden',!visible);
-      $('appUpdateVersion').textContent=upd.latest?'NEW VERSION '+upd.latest:'CLIPCATCH UPDATE';
-      $('appUpdateStatus').textContent=({'available':'ClipCatch 업데이트가 있어요','downloading':'새 버전 다운로드 중','installing':'업데이트 설치 및 재시작 중','error':'업데이트 확인에 문제가 있어요'})[status]||'';
-      $('appUpdateDetail').textContent=(upd.detail||'')+(status==='downloading'&&upd.percent>0?' '+Math.round(upd.percent)+'%':'');
-      $('installAppUpdate').classList.toggle('hidden',status!=='available');
-      $('installAppUpdate').disabled=status!=='available';
+      const us=upd.status||'';
+      const updateVisible=['available','downloading','installing','error'].includes(us);
+      $('appUpdate').classList.toggle('hidden',!updateVisible);
+      toText($('appUpdateVersion'),upd.latest?'NEW VERSION '+upd.latest:'CLIPCATCH UPDATE');
+      toText($('appUpdateStatus'),({available:'새 버전이 있어',downloading:'새 버전 다운로드 중',installing:'업데이트 설치 및 재시작 중',error:'업데이트 확인에 문제가 있어'})[us]||'');
+      toText($('appUpdateDetail'),(upd.detail||'')+(us==='downloading'&&upd.percent>0?' '+Math.round(upd.percent)+'%':''));
+      $('installAppUpdate').classList.toggle('hidden',us!=='available');
+      $('installAppUpdate').disabled=us!=='available';
+      toText($('redditAuthStatus'),st.reddit_auth_ready?'레딧 인증 연결됨 · 인증 필요한 영상에서만 사용':'인증 미등록 · 공개 영상은 그대로 이용 가능');
       if (st.phase==='ready' && st.setup_text==='yt-dlp 업데이트 완료') toText($('updateBtn'),'업데이트 완료 ✓');
       toText($('saveDir'),st.save_dir||'다운로드 폴더');
       const prep=$('setup');const inPrep=st.phase!=='ready'||!!st.setup_error;
@@ -261,7 +251,7 @@
         const hasPct=st.setup_pct>0; $('setupProgress').classList.toggle('indeterminate',!hasPct);
         $('setupBar').style.width=hasPct?Math.max(0,Math.min(100,st.setup_pct))+'%':'';
       }
-      const signature=JSON.stringify((st.jobs||[]).map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required,j.auth_browser]));
+      const signature=JSON.stringify((st.jobs||[]).map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required]));
       if (signature!==lastHistorySignature) {
         lastHistorySignature=signature;
         const target=$('history');target.replaceChildren();
