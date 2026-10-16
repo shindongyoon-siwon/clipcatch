@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.4.1"
+	appDefaultVersion = "1.4.3"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"

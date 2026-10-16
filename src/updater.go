@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -224,27 +226,154 @@ func (a *App) installAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
-func (a *App) downloadAndInstall(rel verifiedRelease, target string) {
+func releaseChecksum(rel verifiedRelease) (string, error) {
 	digest := rel.Digest
 	if rel.SumsURL != "" {
 		txt, err := fetchSmallText(rel.SumsURL)
 		if err != nil {
-			a.setUpdate(UpdateInfo{Status: "error", Detail: "검증 파일을 가져오지 못했습니다: " + err.Error()})
-			return
+			return "", fmt.Errorf("검증 파일을 가져오지 못했습니다: %w", err)
 		}
 		parsed, err := readAppChecksum(txt)
 		if err != nil {
-			a.setUpdate(UpdateInfo{Status: "error", Detail: err.Error()})
-			return
+			return "", err
 		}
 		if digest != "" && !strings.EqualFold(parsed, digest) {
-			a.setUpdate(UpdateInfo{Status: "error", Detail: "GitHub 릴리스 검증값이 서로 일치하지 않습니다."})
-			return
+			return "", errors.New("GitHub 릴리스 검증값이 서로 일치하지 않습니다")
 		}
 		digest = parsed
 	}
 	if digest == "" {
-		a.setUpdate(UpdateInfo{Status: "error", Detail: "검증값이 없습니다."})
+		return "", errors.New("검증값이 없습니다")
+	}
+	return digest, nil
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err = io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// A freshly downloaded executable may repair an old per-user installation.
+// This ONLY accepts the currently published GitHub binary, never an arbitrary EXE.
+func verifyManualInstaller(source string, rel verifiedRelease, digest string) error {
+	if compareSemver(rel.Version, appVersion) != 0 {
+		return fmt.Errorf("현재 최신 배포판은 v%s입니다. 최신 파일을 다운로드해 주세요", rel.Version)
+	}
+	actual, err := sha256File(source)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(actual, digest) {
+		return errors.New("실행파일의 검증값이 공식 배포본과 다릅니다. GitHub에서 다시 다운로드해 주세요")
+	}
+	f, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	header := make([]byte, 2)
+	_, err = io.ReadFull(f, header)
+	_ = f.Close()
+	if err != nil || !bytes.Equal(header, []byte{'M', 'Z'}) {
+		return errors.New("Windows 실행파일 형식이 올바르지 않습니다")
+	}
+	return nil
+}
+
+func installedBinaryMatches(source, target string) bool {
+	a, err := sha256File(source)
+	if err != nil {
+		return false
+	}
+	b, err := sha256File(target)
+	return err == nil && strings.EqualFold(a, b)
+}
+
+// Avoid killing a downloader in the middle of a job. The old app's stop handler
+// exits gracefully; the helper waits for the Windows image lock to be released.
+func stopExistingInstanceForUpgrade() error {
+	return stopExistingInstanceForUpgradeAt("http://127.0.0.1:8765")
+}
+
+func stopExistingInstanceForUpgradeAt(base string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(base + "/api/health")
+	if err != nil {
+		return nil
+	} // likely not running
+	var health struct {
+		App string `json:"app"`
+	}
+	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&health)
+	_ = resp.Body.Close()
+	if health.App != "clipcatch" {
+		return errors.New("다른 프로그램이 ClipCatch 포트를 사용하고 있습니다. 해당 프로그램을 종료한 후 다시 실행해 주세요")
+	}
+	resp, err = client.Get(base + "/api/state")
+	if err != nil {
+		return fmt.Errorf("기존 프로그램의 상태를 확인할 수 없습니다: %w", err)
+	}
+	var state ClientState
+	parseErr := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&state)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || parseErr != nil {
+		return errors.New("기존 프로그램 상태를 확인할 수 없습니다. ClipCatch를 종료한 후 다시 실행해 주세요")
+	}
+	for _, job := range state.Jobs {
+		if job != nil && (job.Status == "queued" || job.Status == "downloading") {
+			return errors.New("진행 중인 영상 다운로드가 끝난 후 업데이트해 주세요")
+		}
+	}
+	req, err := http.NewRequest(http.MethodPost, base+"/api/stop", strings.NewReader("{}"))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", base)
+	resp, err = client.Do(req)
+	if err != nil {
+		return fmt.Errorf("기존 프로그램을 종료하지 못했습니다: %w", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return errors.New("기존 프로그램을 종료하지 못했습니다. 직접 종료 후 다시 시도해 주세요")
+	}
+	return nil
+}
+
+func launchManualRepair(source, target string) error {
+	rel, err := fetchLatestRelease()
+	if err != nil {
+		return fmt.Errorf("공식 업데이트 정보를 확인할 수 없습니다: %w", err)
+	}
+	digest, err := releaseChecksum(rel)
+	if err != nil {
+		return err
+	}
+	if err = verifyManualInstaller(source, rel, digest); err != nil {
+		return err
+	}
+	if err = stopExistingInstanceForUpgrade(); err != nil {
+		return err
+	}
+	cmd := exec.Command(source, "--clipcatch-apply-update", target, appVersion)
+	if err = cmd.Start(); err != nil {
+		return fmt.Errorf("복구 업데이트를 시작할 수 없습니다: %w", err)
+	}
+	return cmd.Process.Release()
+}
+
+func (a *App) downloadAndInstall(rel verifiedRelease, target string) {
+	digest, err := releaseChecksum(rel)
+	if err != nil {
+		a.setUpdate(UpdateInfo{Status: "error", Detail: "업데이트 검증 실패: " + err.Error()})
 		return
 	}
 	newFile := filepath.Join(a.dataDir, "updates", "ClipCatch-new.exe")
@@ -253,7 +382,7 @@ func (a *App) downloadAndInstall(rel verifiedRelease, target string) {
 		return
 	}
 	_ = os.Remove(newFile)
-	err := downloadVerified(rel.BinaryURL, newFile, digest, func(now, total int64) {
+	err = downloadVerified(rel.BinaryURL, newFile, digest, func(now, total int64) {
 		a.setUpdate(UpdateInfo{Status: "downloading", Latest: rel.Version, Detail: "새 버전 다운로드 중...", Percent: percent(now, total)})
 	})
 	if err != nil {
@@ -329,6 +458,7 @@ func applyClipCatchUpdate(args []string) {
 	}
 	if !renamed {
 		logUpdate("Could not move in-use target: " + target)
+		showInstallError("업데이트 중 파일을 교체하지 못했어. ClipCatch를 완전히 종료한 후 다시 시도해 줘.")
 		return
 	}
 	rollback := func() {
@@ -449,39 +579,53 @@ func installAndRelaunch() bool {
 		return false
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		return false
+		showInstallError("ClipCatch 설치 폴더를 만들 수 없습니다: " + err.Error())
+		return true
 	}
-	// Never overwrite an existing installed build with an old copy from a ZIP.
-	if _, err := os.Stat(target); os.IsNotExist(err) {
+	if _, err := os.Stat(target); err == nil {
+		if !installedBinaryMatches(source, target) {
+			// Launching a newly downloaded official binary MUST upgrade, not reopen an old copy.
+			if err := launchManualRepair(source, target); err != nil {
+				logUpdate("Manual update failed: " + err.Error())
+				showInstallError("업데이트를 완료하지 못했어.\n" + err.Error() + "\n\nClipCatch의 기존 파일과 다운로드 기록은 그대로 보관돼 있어.")
+			}
+			return true
+		}
+	} else if os.IsNotExist(err) {
 		tmp := target + ".new"
-		in, err := os.Open(source)
-		if err != nil {
-			return false
+		in, openErr := os.Open(source)
+		if openErr != nil {
+			showInstallError("실행파일을 열 수 없습니다: " + openErr.Error())
+			return true
 		}
-		out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0700)
-		if err != nil {
+		out, createErr := os.OpenFile(tmp, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0700)
+		if createErr != nil {
 			_ = in.Close()
-			return false
+			showInstallError("설치 파일을 만들 수 없습니다: " + createErr.Error())
+			return true
 		}
-		_, cErr := io.Copy(out, in)
+		_, copyErr := io.Copy(out, in)
 		closeErr := out.Close()
 		_ = in.Close()
-		if cErr != nil || closeErr != nil {
+		if copyErr != nil || closeErr != nil {
 			_ = os.Remove(tmp)
-			return false
+			showInstallError("실행파일 복사에 실패했습니다")
+			return true
 		}
 		if err := os.Rename(tmp, target); err != nil {
 			_ = os.Remove(tmp)
-			return false
+			showInstallError("실행파일 설치에 실패했습니다: " + err.Error())
+			return true
 		}
-	}
-	if _, err := os.Stat(target); err != nil {
-		return false
+	} else {
+		showInstallError("기존 설치 파일을 확인할 수 없습니다: " + err.Error())
+		return true
 	}
 	makeClipCatchShortcuts(target)
 	cmd := exec.Command(target)
 	if err := cmd.Start(); err != nil {
-		return false
+		showInstallError("ClipCatch를 시작할 수 없습니다: " + err.Error())
+		return true
 	}
 	_ = cmd.Process.Release()
 	return true
