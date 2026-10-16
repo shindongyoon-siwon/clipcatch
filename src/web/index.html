@@ -29,6 +29,16 @@
     .update-install{border:0;background:var(--lime);color:#15200d;border-radius:9px;padding:9px 13px;font-size:12px;font-weight:850;cursor:pointer}
     .update-install:disabled{opacity:.45;cursor:wait}
     .update-btn:disabled{opacity:.52;cursor:wait}
+    .job-status.cancelled{background:#343c47;color:#b9c7d5}
+    .job.cancelled .job-detail{color:#b0bcca}
+    .job-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:8px}
+    .job-actions .retry-btn{margin-top:0}
+    .job-cancel{border:1px solid #606977;background:#303944;color:#dbe4eb;border-radius:9px;font-size:11px;font-weight:760;padding:8px 11px;cursor:pointer}
+    .job-cancel:hover{background:#3d4754}
+    .section-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+    .section-actions .retry-btn{margin-top:0}
+    .history-feedback{font-size:12px;color:#c5dcad;margin:-5px 0 12px;line-height:1.6}
+    .history-feedback.error{color:#ffbdc3}
     .history-more{margin-top:12px}
     .history-more>summary{list-style:none;display:flex;align-items:center;justify-content:center;gap:9px;padding:13px 18px;border:1px solid #384352;background:#19212b;border-radius:12px;color:#c4d0de;font-size:13px;font-weight:750;cursor:pointer;transition:border-color .15s,background .15s}
     .history-more>summary::-webkit-details-marker{display:none}
@@ -60,7 +70,7 @@
     <header class="navbar">
       <div class="brand">
         <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m-5-5 5 5 5-5"/><path d="M4 17v3h16v-3"/></svg></div>
-        <div class="brand-word">Clip<span>Catch</span> <small style="font-size:10px;color:#d9ff57">1.4</small></div>
+        <div class="brand-word">Clip<span>Catch</span> <small style="font-size:10px;color:#d9ff57">__APP_VERSION__</small></div>
       </div>
       <div class="topright"><span class="local"><i></i> 내 PC에서 실행 중</span><button id="quitBtn" class="close-app" title="프로그램 종료">종료</button></div>
     </header>
@@ -125,7 +135,8 @@
     </div>
 
     <section>
-      <div class="section-head"><div class="section-title">다운로드 내역</div><div class="count" id="historyCount">0개</div></div>
+      <div class="section-head"><div class="section-title">다운로드 내역</div><div class="section-actions"><button id="retryFailed" type="button" class="retry-btn hidden">실패한 영상 다시 시도</button><div class="count" id="historyCount">0개</div></div></div>
+      <p class="history-feedback hidden" id="historyFeedback" role="status" aria-live="polite"></p>
       <div class="history" id="history">
         <div class="empty"><svg width="33" height="33" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4V8z"/></svg><div><b>아직 다운로드한 영상이 없어요</b><p>위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.</p></div></div>
       </div>
@@ -160,6 +171,9 @@
     const toText = (el, txt) => {el.textContent = txt == null ? '' : String(txt);};
     function parseUrls(s) { return (s.match(/https?:\/\/[^\s\"<>]+/g) || []).filter(Boolean); }
     function notice(msg) { toText($('inputNotice'), msg); $('inputNotice').classList.toggle('show', !!msg); }
+    function historyNotice(msg, error=false){
+      const el=$('historyFeedback');toText(el,msg);el.classList.toggle('hidden',!msg);el.classList.toggle('error',error);
+    }
     function showUpdateFeedback(message, kind='info', canInstall=false, pct=null){
       const box=$('updateFeedback');box.classList.remove('hidden');box.dataset.kind=kind;
       toText($('appCheckFeedback'),message);
@@ -185,20 +199,38 @@
     async function post(url, data) {
       const resp = await fetch(url, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data || {})});
       const res = await resp.json();
-      if (!resp.ok) throw new Error(res.error || '작업을 처리하지 못했습니다');
+      if (!resp.ok) {
+        const err=new Error(res.error || '작업을 처리하지 못했습니다');
+        if (Array.isArray(res.duplicates)) err.duplicates=res.duplicates;
+        throw err;
+      }
       return res;
     }
     async function submitLinks(){
       if (loading) return;
       const urls = parseUrls($('urlInput').value);
-      if (!urls.length) {notice('영상 링크를 한 개 이상 입력해 주세요.');$('urlInput').focus();return;}
-      if (urls.length > 10) {notice('한 번에 최대 10개까지만 다운로드할 수 있어요.');return;}
+      if (!urls.length) {notice('영상 링크를 한 개 이상 입력해 줘.');$('urlInput').focus();return;}
+      if (urls.length > 10) {notice('한 번에 최대 10개까지만 다운로드할 수 있어.');return;}
       loading = true;
       $('downloadBtn').disabled = true;
       $('downloadBtn').lastChild.textContent = ' 추가하는 중...';
       try {
-        await post('/api/download', {urls:$('urlInput').value});
-        $('urlInput').value = ''; updateCount(); notice('');
+        let result;
+        try {
+          result = await post('/api/download', {urls:$('urlInput').value});
+        } catch (err) {
+          if (!err.duplicates || !err.duplicates.length) throw err;
+          const names=err.duplicates.slice(0,2).map(x=>x.title||x.url).join('\n');
+          if (!confirm('이미 받은 영상 '+err.duplicates.length+'개가 있어.\n'+names+'\n\n새 파일로 다시 저장할까?')) {
+            notice('중복 다운로드를 취소했어. 링크는 그대로 남겨뒀어.');
+            return;
+          }
+          result = await post('/api/download', {urls:$('urlInput').value, allow_duplicates:true});
+        }
+        if(result.count>0){
+          $('urlInput').value='';updateCount();
+          notice(result.skipped_pending ? result.count+'개 추가했어. 이미 대기 중인 '+result.skipped_pending+'개는 건너뛰었어.' : '');
+        } else notice('이미 대기 중이거나 다운로드 중인 링크야. 추가하지 않았어.');
         await poll();
       } catch (err) { notice(err.message); }
       finally { loading = false; $('downloadBtn').disabled = false; $('downloadBtn').lastChild.textContent = ' 다운로드 시작'; }
@@ -247,13 +279,13 @@
       document.body.innerHTML = '<div style="color:#f0f4eb;text-align:center;padding:100px 20px;font-family:Segoe UI,Malgun Gothic,sans-serif"><h2>ClipCatch가 종료됐어요.</h2><p style="color:#9daab7">다시 사용하려면 ClipCatch.exe를 더블클릭하세요.</p></div>';
     });
     function renderJob(j) {
-      const elem = document.createElement('div'); elem.className = 'job ' + (['queued','downloading','done','error'].includes(j.status)?j.status:'queued');
+      const elem = document.createElement('div'); elem.className = 'job ' + (['queued','downloading','done','error','cancelled'].includes(j.status)?j.status:'queued');
       const top = document.createElement('div');top.className='job-top';
       const left = document.createElement('div');left.style.minWidth = '0';left.style.flex = '1';
       const title = document.createElement('div');title.className='job-title';toText(title,j.title === '제목 확인 중...' ? j.host+' · 영상 정보 확인 중' : j.title);left.appendChild(title);
       const link = document.createElement('div');link.className='job-url';toText(link,j.url);left.appendChild(link);top.appendChild(left);
       const status = document.createElement('div');status.className='job-status '+j.status;
-      toText(status,({queued:'대기',downloading:'다운로드 중',done:'완료',error:'실패'})[j.status]||j.status);top.appendChild(status);elem.appendChild(top);
+      toText(status,({queued:'대기',downloading:'다운로드 중',done:'완료',error:'실패',cancelled:'취소됨'})[j.status]||j.status);top.appendChild(status);elem.appendChild(top);
       if (j.status === 'downloading') {
         const meter = document.createElement('div');meter.className='meter';const fill = document.createElement('div');fill.style.width = Math.max(0,Math.min(100,j.percent||0))+'%';meter.appendChild(fill);elem.appendChild(meter);
       }
@@ -264,23 +296,35 @@
       const meta=document.createElement('div');meta.style.whiteSpace='nowrap';
       toText(meta,j.status==='downloading' ? (Math.round(j.percent||0)+'%'+(j.speed&&j.speed!=='NA'?' · '+j.speed:'')) : j.time);
       bottom.appendChild(meta);elem.appendChild(bottom);
+      const actions=document.createElement('div');actions.className='job-actions';
+      if(j.status==='queued' || j.status==='downloading'){
+        const cancel=document.createElement('button');cancel.className='job-cancel';cancel.type='button';
+        toText(cancel,j.status==='queued'?'대기 취소':'다운로드 취소');
+        cancel.addEventListener('click',async()=>{
+          cancel.disabled=true;
+          try {await post('/api/cancel-download',{id:j.id});historyNotice('선택한 영상 다운로드를 취소했어.');await poll();}
+          catch(err){historyNotice('취소 실패: '+err.message,true);cancel.disabled=false;}
+        });
+        actions.appendChild(cancel);
+      }
       if(j.status==='error') {
         const retry=document.createElement('button'); retry.className='retry-btn';retry.type='button';toText(retry,'이 링크 재시도');
         retry.addEventListener('click',()=>{
           $('urlInput').value=j.url;updateCount();submitLinks();
         });
-        elem.appendChild(retry);
+        actions.appendChild(retry);
         if (j.auth_required && /reddit\.com|redd\.it/i.test(j.host || '')) {
           const auth=document.createElement('button');auth.type='button';auth.className='retry-btn';
           toText(auth,'레딧 로그인 연결하기');
           auth.addEventListener('click',()=>{$('redditAuthDetails').open=true;$('redditAuthDetails').scrollIntoView({behavior:'smooth'});});
-          elem.appendChild(auth);
+          actions.appendChild(auth);
         }
       }
+      if(actions.childNodes.length)elem.appendChild(actions);
       return elem;
     }
     function jobSignature(jobs) {
-      return JSON.stringify(jobs.map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required,j.speed,j.time]));
+      return JSON.stringify(jobs.map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required,j.speed,j.time,j.redownload]));
     }
     function paintJobList(target, jobs, emptyMessage) {
       const fragment=document.createDocumentFragment();
@@ -307,6 +351,10 @@
       const more=$('historyMore');
       more.classList.toggle('hidden',older.length===0);
       toText($('historyCount'),'전체 '+jobs.length+'개');
+      const failCount=jobs.filter(j=>j.status==='error').length;
+      $('retryFailed').classList.toggle('hidden',failCount===0);
+      $('retryFailed').disabled=failCount===0;
+      toText($('retryFailed'),'실패 '+failCount+'개 다시 시도');
       if (older.length===0) {
         if (more.open) more.open=false;
         lastOlderHistorySignature='';
@@ -326,6 +374,7 @@
       if (!st) return;lastState=st;
       if (st.version && st.version!==uiVersion){window.location.reload();return;}
       const upd=st.app_update||{};
+      const receipt=st.update_receipt||null;
       const us=upd.status||'';
       $('checkAppUpdate').disabled=['downloading','installing'].includes(us);
       $('updateBtn').disabled=st.phase!=='ready';
@@ -339,6 +388,10 @@
         else if(us==='installing')showUpdateFeedback('새 버전 설치 중 · 잠시 후 ClipCatch가 다시 실행돼.','working',false,100);
         else if(us==='unavailable')showUpdateFeedback('새 버전 확인 불가 · '+(upd.detail||'배포를 확인해 줘.'),'error');
         else if(us==='error')showUpdateFeedback('업데이트 실패 · '+(upd.detail||'연결을 확인해 줘.'),'error');
+      }else if(!updateMode && receipt && receipt.status==='verified' && receipt.version===st.version){
+        showUpdateFeedback('ClipCatch v'+receipt.version+' 업데이트 정상 적용 확인됨 · 새 버전 실행 검사 완료.','success');
+      }else if(!updateMode && receipt && receipt.status==='rolled_back'){
+        showUpdateFeedback('업데이트 적용 실패 · 기존 버전으로 복구했어.','error');
       }else if(updateMode==='engine'){
         const m=st.setup_text||'';
         const er=st.setup_error||'';
@@ -368,6 +421,15 @@
     }
     async function poll(){try{const resp=await fetch('/api/state',{cache:'no-store'});if(!resp.ok)throw Error();render(await resp.json());}catch(e){if(lastState)toText($('setupTitle'),'서버 연결이 끊겼어요. 프로그램을 다시 실행해 주세요.');}}
     $('historyMore').addEventListener('toggle',()=>{if(lastState)renderHistory(lastState);});
+    $('retryFailed').addEventListener('click',async()=>{
+      $('retryFailed').disabled=true;
+      historyNotice('실패한 영상을 다시 다운로드 대기열에 추가하는 중...');
+      try {
+        const res=await post('/api/retry-failed');
+        historyNotice(res.count ? '실패한 영상 '+res.count+'개를 다시 시도할게.'+(res.skipped?' 중복 '+res.skipped+'개 제외.':'') : '다시 시도할 실패 영상이 없어.');
+        await poll();
+      } catch(err){historyNotice('일괄 재시도 실패: '+err.message,true);$('retryFailed').disabled=false;}
+    });
     poll();setInterval(poll,1000);
     $('urlInput').focus();
   </script>

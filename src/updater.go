@@ -537,6 +537,9 @@ func applyClipCatchUpdate(args []string) {
 	}
 	if healthy {
 		_ = os.Remove(backup)
+		if err := writeUpdateReceipt(clipCatchDataDir(), "verified", appVersion, "새 버전 실행과 버전 확인까지 완료했어."); err != nil {
+			logUpdate("Cannot save update receipt: " + err.Error())
+		}
 		logUpdate("Updated to " + appVersion)
 	} else {
 		logUpdate("New version did not become healthy; rolling back. pid=" + strconv.Itoa(pid))
@@ -545,6 +548,7 @@ func applyClipCatchUpdate(args []string) {
 		}
 		time.Sleep(500 * time.Millisecond)
 		rollback()
+		_ = writeUpdateReceipt(clipCatchDataDir(), "rolled_back", appVersion, "새 버전 실행 확인에 실패해서 기존 버전으로 복구했어.")
 		old := exec.Command(target)
 		_ = old.Start()
 		if old.Process != nil {

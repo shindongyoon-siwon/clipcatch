@@ -1,23 +1,24 @@
-# ClipCatch v1.4.1
+# ClipCatch v1.5.0
 
-Reddit-first, local Windows video downloader with opt-in, integrity-checked GitHub Releases updates.
+Reddit-first Windows video downloader with local browser interface and opt-in, integrity-checked GitHub Releases updates.
 
-- URL allowlist, strict same-origin POST validation, localhost-only API.
-- High-quality yt-dlp downloads and ffmpeg merge; no re-encoding by default.
-- Reddit post normalization; connection-drop recovery with capped yt-dlp retries and an IPv4 fallback; browser impersonation for access blocks only.
-- When Reddit requests authentication, **only user-imported Reddit cookies** are supported. `--cookies-from-browser` is disabled. Cookies are filtered to exact `reddit.com` domains, used only for Reddit requests and handled via temporary files deleted after each attempt.
-- Optional *per-user* Windows DPAPI encryption for remembering Reddit login; off by default.
-- Existing `%LOCALAPPDATA%\ClipCatch` and `Downloads\ClipCatch` are retained.
-- App update checks GitHub Releases, validates SHA-256, requires an explicit Install click, backs up/restarts/rolls back. Not silently executed.
-- The app is **not Authenticode-signed** and cannot substitute for corporate IT approval.
+- Add up to 10 links at a time; highest available source quality using yt-dlp and FFmpeg without re-encoding by default.
+- Reddit-specific connection-drop retries, IPv4 fallback and optional **Reddit-only** authentication. No automatic Chrome cookie access.
+- Recently downloaded items: 8 displayed by default; older items can be expanded.
+- **Duplicate protection:** identify the same Reddit/X/YouTube post across equivalent URLs; compare against active downloads and a persistent local index of successful downloads (up to 5,000 entries), and check that the original file still exists. Ask before downloading a duplicate; an explicit second download receives a distinct filename instead of overwriting the original.
+- **Job cancellation:** cancel queued items or active yt-dlp downloads individually (and stop child processes on Windows where possible). Cancellation never marks a job as a failed download.
+- **Bulk retry:** retry all failed jobs in the local history, without scheduling the same post more than once.
+- **Update verification:** after a signed-off-by-checksum GitHub update, the updater checks the restarted application's version and health before writing a local success receipt shown in the UI; failures trigger rollback. Windows OS reputation / Smart App Control may still block unsigned executables.
+- All user data, local history, and the duplicate index live under `%LOCALAPPDATA%\ClipCatch`; downloads go to `Downloads\ClipCatch`.
+- No server/API fee and no background remote upload of downloads.
 
-## Build and test
+## Build
 
 ```sh
 cd src
 go test ./...
 go vet ./...
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.4.1' -o ../ClipCatch.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.5.0' -o ../ClipCatch.exe .
 ```
 
-Publish by updating `VERSION`, committing source to `main`, and letting GitHub Actions release a new version. No credentials shipped in the application. **Never commit cookies.**
+To publish, bump the `VERSION` file and commit the matching source to `main`. GitHub Actions builds and publishes the executable and SHA-256 checksums. No account credentials are committed. The application is not Authenticode-signed.

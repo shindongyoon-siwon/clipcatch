@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -26,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.4.3"
+	appDefaultVersion = "1.5.0"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -56,22 +57,25 @@ type Job struct {
 	Detail       string  `json:"detail"`
 	Time         string  `json:"time"`
 	AuthRequired bool    `json:"auth_required,omitempty"`
+	Redownload   bool    `json:"redownload,omitempty"`
 }
 
 type ClientState struct {
-	Version         string     `json:"version"`
-	Phase           string     `json:"phase"`
-	SetupText       string     `json:"setup_text"`
-	SetupPct        float64    `json:"setup_pct"`
-	SetupError      string     `json:"setup_error"`
-	SaveDir         string     `json:"save_dir"`
-	Jobs            []*Job     `json:"jobs"`
-	AppUpdate       UpdateInfo `json:"app_update"`
-	RedditAuthReady bool       `json:"reddit_auth_ready"`
+	Version         string         `json:"version"`
+	Phase           string         `json:"phase"`
+	SetupText       string         `json:"setup_text"`
+	SetupPct        float64        `json:"setup_pct"`
+	SetupError      string         `json:"setup_error"`
+	SaveDir         string         `json:"save_dir"`
+	Jobs            []*Job         `json:"jobs"`
+	AppUpdate       UpdateInfo     `json:"app_update"`
+	RedditAuthReady bool           `json:"reddit_auth_ready"`
+	UpdateReceipt   *UpdateReceipt `json:"update_receipt,omitempty"`
 }
 
 type App struct {
 	mu            sync.Mutex
+	persistMu     sync.Mutex
 	state         ClientState
 	dataDir       string
 	toolDir       string
@@ -83,16 +87,21 @@ type App struct {
 	mux           *http.ServeMux
 	server        *http.Server
 	activeCmd     *exec.Cmd
+	activeJobID   string
+	activeCancel  context.CancelFunc
+	activeContext context.Context
+	downloaded    map[string]downloadRecord
 	latestRelease verifiedRelease
 	redditCookies []byte
 }
 
 func newApp(dataDir, saveDir string) *App {
 	a := &App{
-		dataDir: dataDir,
-		toolDir: filepath.Join(dataDir, "tools"),
-		saveDir: saveDir,
-		queue:   make(chan string, 150),
+		dataDir:    dataDir,
+		toolDir:    filepath.Join(dataDir, "tools"),
+		saveDir:    saveDir,
+		queue:      make(chan string, 150),
+		downloaded: make(map[string]downloadRecord),
 	}
 	a.state = ClientState{
 		Version:   appVersion,
@@ -103,6 +112,7 @@ func newApp(dataDir, saveDir string) *App {
 		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
 	a.loadHistory()
+	a.loadDownloadIndex()
 	a.loadRememberedRedditAuth()
 	a.removeOrphanedCookieFiles()
 	a.routes()
@@ -155,9 +165,12 @@ func (a *App) routes() {
 			state.Jobs[i] = &copyJob
 		}
 		a.mu.Unlock()
+		state.UpdateReceipt = readUpdateReceipt(a.dataDir)
 		writeJSON(w, 200, state)
 	})
 	mux.HandleFunc("POST /api/download", a.downloadHandler)
+	mux.HandleFunc("POST /api/cancel-download", a.cancelDownloadHandler)
+	mux.HandleFunc("POST /api/retry-failed", a.retryFailedHandler)
 	mux.HandleFunc("POST /api/update-tool", a.updateToolHandler)
 	mux.HandleFunc("POST /api/upload-reddit-cookies", a.uploadRedditCookiesHandler)
 	mux.HandleFunc("POST /api/clear-reddit-cookies", a.clearRedditCookiesHandler)
@@ -288,7 +301,8 @@ func approvedVideoHost(host string) bool {
 func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 32768)
 	var req struct {
-		URLs string `json:"urls"`
+		URLs            string `json:"urls"`
+		AllowDuplicates bool   `json:"allow_duplicates"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -305,8 +319,8 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "한 번에 링크를 최대 10개까지 추가할 수 있습니다.")
 		return
 	}
-	unique := make(map[string]bool)
-	type input struct{ u, h string }
+	type input struct{ u, h, key string }
+	seen := map[string]bool{}
 	inputs := make([]input, 0, len(matches))
 	for _, m := range matches {
 		u, h, err := cleanURL(m)
@@ -314,22 +328,48 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err.Error())
 			return
 		}
-		if !unique[u] {
-			unique[u] = true
-			inputs = append(inputs, input{u, h})
+		key := canonicalJobKey(u)
+		if !seen[key] {
+			seen[key] = true
+			inputs = append(inputs, input{u, h, key})
 		}
 	}
 	a.mu.Lock()
+	var duplicates []duplicateInfo
+	var pending int
+	for _, it := range inputs {
+		if a.hasQueuedDownloadLocked(it.key) {
+			pending++
+			continue
+		}
+		if duplicate, exists := a.existingDownloadLocked(it.key); exists && !req.AllowDuplicates {
+			duplicate.URL = it.u
+			duplicates = append(duplicates, duplicate)
+		}
+	}
+	if len(duplicates) != 0 {
+		a.mu.Unlock()
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":      "이미 받은 영상이 있어. 다시 받으려면 확인해 줘.",
+			"duplicates": duplicates,
+		})
+		return
+	}
 	if len(a.state.Jobs) > 100 {
 		a.state.Jobs = a.state.Jobs[:100]
 	}
-	added := make([]string, 0, len(inputs))
+	var added []string
 	for _, it := range inputs {
+		if a.hasQueuedDownloadLocked(it.key) {
+			continue
+		}
+		_, isRedownload := a.existingDownloadLocked(it.key)
 		a.created++
 		id := fmt.Sprintf("%d-%d", time.Now().UnixNano(), a.created)
 		a.state.Jobs = append([]*Job{{
 			ID: id, URL: it.u, Host: it.h, Title: "제목 확인 중...", Status: "queued",
 			Time: time.Now().Format("2006-01-02 15:04"), Detail: "다운로드 대기 중",
+			Redownload: isRedownload,
 		}}, a.state.Jobs...)
 		added = append(added, id)
 	}
@@ -337,7 +377,7 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	for _, id := range added {
 		a.queue <- id
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "count": len(added)})
+	writeJSON(w, 200, map[string]any{"ok": true, "count": len(added), "skipped_pending": pending, "skipped_input": len(matches) - len(inputs)})
 }
 
 func (a *App) updateToolHandler(w http.ResponseWriter, r *http.Request) {
@@ -443,6 +483,9 @@ func (a *App) getJob(id string) *Job {
 func (a *App) worker() {
 	for id := range a.queue {
 		for {
+			if a.isJobCancelled(id) {
+				break
+			}
 			a.mu.Lock()
 			phase := a.state.Phase
 			a.mu.Unlock()
@@ -451,12 +494,18 @@ func (a *App) worker() {
 			}
 			if phase == "error" {
 				a.mutateJob(id, func(j *Job) {
-					j.Status = "error"
-					j.Detail = "프로그램 준비 실패: 설정 안내를 확인해 주세요"
+					if j.Status == "queued" {
+						j.Status = "error"
+						j.Detail = "프로그램 준비 실패: 설정 안내를 확인해 주세요"
+					}
 				})
+				a.saveHistory()
 				break
 			}
 			time.Sleep(400 * time.Millisecond)
+		}
+		if a.isJobCancelled(id) {
+			continue
 		}
 		a.mu.Lock()
 		phase := a.state.Phase
@@ -487,6 +536,10 @@ func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool
 		"--merge-output-format", "mp4/mkv", "-f", "bv*+ba/b",
 		"-P", a.saveDir,
 		"-o", "%(title).120B [%(id)s].%(ext)s",
+	}
+	if j.Redownload {
+		// The user explicitly chose another copy; never overwrite the original.
+		args[len(args)-1] = "%(title).120B [%(id)s] (" + j.ID + ").%(ext)s"
 	}
 	if isRedditHost(j.Host) {
 		// Retry video/CDN disconnects before falling back to a different route.
@@ -556,17 +609,36 @@ func shouldRetryReddit(msg string) bool {
 }
 
 func (a *App) runDownload(id string) {
-	j := a.getJob(id)
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	var j *Job
+	for _, item := range a.state.Jobs {
+		if item.ID == id && item.Status == "queued" {
+			item.Status, item.Percent, item.Detail = "downloading", 0, "영상 정보를 가져오는 중..."
+			copyJob := *item
+			j = &copyJob
+			a.activeJobID, a.activeContext, a.activeCancel = id, ctx, cancel
+			break
+		}
+	}
+	a.mu.Unlock()
 	if j == nil {
+		cancel()
 		return
 	}
-	a.mutateJob(id, func(j *Job) {
-		j.Status = "downloading"
-		j.Percent = 0
-		j.Detail = "영상 정보를 가져오는 중..."
-	})
+	defer func() {
+		cancel()
+		a.mu.Lock()
+		if a.activeJobID == id {
+			a.activeJobID, a.activeContext, a.activeCancel = "", nil, nil
+		}
+		a.mu.Unlock()
+	}()
 
 	err, msg := a.runDownloadAttempt(id, j, false)
+	if ctx.Err() != nil || a.isJobCancelled(id) {
+		return
+	}
 	redditNeedsRetry := err != nil && isRedditHost(j.Host) && shouldRetryReddit(msg)
 	initialAccessBlock := redditNeedsRetry && isRedditAccessBlock(msg)
 	if redditNeedsRetry {
@@ -580,15 +652,15 @@ func (a *App) runDownload(id string) {
 			j.Percent = 0
 		})
 		if networkDrop {
-			// Do not invoke browser impersonation on a flaky media connection:
-			// that can make downloading less reliable. Try IPv4 instead.
 			err, msg = a.runDownloadAttemptIPv4(id, j)
 		} else {
 			err, msg = a.runDownloadAttempt(id, j, true)
 		}
 	}
-	// Reddit-only cookies are helpful for access restrictions, not a broken
-	// network route. Never read Chrome profiles or other websites' sessions.
+	if ctx.Err() != nil || a.isJobCancelled(id) {
+		return
+	}
+	// Reddit authentication is only used on access blocks, never network drops.
 	if err != nil && isRedditHost(j.Host) && (initialAccessBlock || isRedditAccessBlock(msg)) {
 		cookieData := a.copyRedditCookies()
 		if len(cookieData) > 0 {
@@ -599,11 +671,17 @@ func (a *App) runDownload(id string) {
 			}
 		}
 	}
+	if ctx.Err() != nil || a.isJobCancelled(id) {
+		return
+	}
 	if err != nil {
 		if msg == "" {
 			msg = err.Error()
 		}
 		a.mutateJob(id, func(j *Job) {
+			if j.Status == "cancelled" {
+				return
+			}
 			j.Status = "error"
 			j.AuthRequired = needsAuth(msg) || initialAccessBlock || isRedditAccessBlock(msg)
 			j.Detail = cut(friendlyError(msg), 520)
@@ -611,6 +689,9 @@ func (a *App) runDownload(id string) {
 		return
 	}
 	a.mutateJob(id, func(j *Job) {
+		if j.Status == "cancelled" {
+			return
+		}
 		j.Status, j.Percent, j.Speed, j.ETA = "done", 100, "", ""
 		j.Detail = "원본 스트림 다운로드 완료"
 	})
@@ -633,7 +714,19 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 			return err, ""
 		}
 	}
-	cmd := exec.Command(a.ytDlp, args...)
+	a.mu.Lock()
+	ctx := a.activeContext
+	if a.activeJobID != id {
+		ctx = nil
+	}
+	a.mu.Unlock()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err, "다운로드가 취소되었어."
+	}
+	cmd := exec.CommandContext(ctx, a.ytDlp, args...)
 	cmd.Stdin = nil
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -700,6 +793,9 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 }
 
 func (a *App) parseOutput(id, line string) {
+	if a.isJobCancelled(id) {
+		return
+	}
 	line = strings.TrimSpace(line)
 	if idx := strings.Index(line, "CLIP_PROGRESS|"); idx >= 0 {
 		fields := strings.SplitN(line[idx+len("CLIP_PROGRESS|"):], "|", 3)
@@ -1037,26 +1133,6 @@ func extractFFmpeg(zipPath, dir string) error {
 	return nil
 }
 
-func (a *App) saveHistory() {
-	a.mu.Lock()
-	list := make([]*Job, 0, len(a.state.Jobs))
-	for _, j := range a.state.Jobs {
-		if j.Status == "done" || j.Status == "error" {
-			cp := *j
-			list = append(list, &cp)
-		}
-		if len(list) >= 50 {
-			break
-		}
-	}
-	a.mu.Unlock()
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.MkdirAll(a.dataDir, 0755)
-	_ = os.WriteFile(filepath.Join(a.dataDir, "history.json"), data, 0600)
-}
 func (a *App) loadHistory() {
 	data, err := os.ReadFile(filepath.Join(a.dataDir, "history.json"))
 	if err != nil {
@@ -1067,7 +1143,7 @@ func (a *App) loadHistory() {
 		return
 	}
 	for _, j := range jobs {
-		if j != nil && (j.Status == "done" || j.Status == "error") {
+		if j != nil && (j.Status == "done" || j.Status == "error" || j.Status == "cancelled") {
 			// Migrate auth errors from version 1.0 so the retry UI provides login guidance.
 			if j.Status == "error" && needsAuth(j.Detail) {
 				j.AuthRequired = true
