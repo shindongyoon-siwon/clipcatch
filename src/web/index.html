@@ -18,6 +18,14 @@
     .setup{margin:20px 0 0;background:#20271f;border:1px solid #516637;border-radius:16px;padding:17px 20px;display:none}.setup.show{display:block}.setup-top{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:750}.setup-top svg{color:var(--lime)}.setup-sub{font-size:12px;margin-top:8px;color:#c2cdb2;line-height:1.7;white-space:pre-wrap}.setup.error{background:#2b2026;border-color:#704451}.setup.error .setup-top svg{color:var(--red)}.setup-progress{height:5px;background:#3a4435;border-radius:8px;overflow:hidden;margin-top:13px}.setup-progress>div{height:100%;background:var(--lime);width:0;transition:width .4s}.setup-progress.indeterminate>div{width:38%;animation:busy 1.4s ease-in-out infinite}@keyframes busy{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
     .perks{margin:20px 0 41px;display:flex;flex-wrap:wrap;gap:9px}.perk{display:flex;align-items:center;gap:7px;padding:9px 11px;border:1px solid #303746;border-radius:10px;color:#a8b3c3;background:#151b24;font-size:12px;font-weight:680}.perk svg{color:var(--lime)}
     .section-head{display:flex;justify-content:space-between;align-items:center;margin:20px 0 16px}.section-title{font-size:19px;font-weight:820;letter-spacing:-.65px}.count{font-size:12px;color:#a7b2c1;border-radius:8px;border:1px solid #394252;padding:5px 10px}.history{display:flex;flex-direction:column;gap:10px;min-height:104px}.empty{display:flex;align-items:center;gap:15px;padding:28px;background:#151a22;border-radius:17px;border:1px dashed #3d4653}.empty svg{color:#718093}.empty b{font-size:13px}.empty p{color:#8794a4;font-size:12px;margin:6px 0 0}.job{padding:18px 19px;background:#181e28;border:1px solid #303948;border-radius:16px}.job-top{display:flex;justify-content:space-between;align-items:center;gap:15px}.job-title{font-size:13px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:680px}.job-url{color:#8393a4;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:7px;max-width:790px}.job-status{font-size:11px;font-weight:780;padding:6px 10px;border-radius:9px;white-space:nowrap}.job-status.downloading{color:#cceca2;background:#34452c}.job-status.queued{color:#b8c8d6;background:#2a3442}.job-status.done{color:#d6ffa2;background:#314628}.job-status.error{color:#ffb6bd;background:#4b303a}.job-bottom{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:13px;color:#98a7b9;font-size:11px}.job-detail{line-height:1.6;overflow-wrap:anywhere;white-space:pre-line;min-width:0}.meter{height:5px;margin-top:12px;background:#303846;border-radius:4px;overflow:hidden}.meter>div{height:100%;background:var(--lime);transition:width .35s}.job.error{border-color:#704550}.job.error .job-detail{color:#ffc2c7}.job.done .job-detail{color:#acd38c}.muted{color:#8290a1}
+    .history-more{margin-top:12px}
+    .history-more>summary{list-style:none;display:flex;align-items:center;justify-content:center;gap:9px;padding:13px 18px;border:1px solid #384352;background:#19212b;border-radius:12px;color:#c4d0de;font-size:13px;font-weight:750;cursor:pointer;transition:border-color .15s,background .15s}
+    .history-more>summary::-webkit-details-marker{display:none}
+    .history-more>summary:hover{background:#25303c;border-color:#708157;color:#e0ff9e}
+    .history-more>summary:focus-visible{outline:2px solid var(--lime);outline-offset:3px}
+    .history-more .history-chevron{display:inline-block;color:var(--lime);font-size:17px;line-height:1;transition:transform .2s}
+    .history-more[open] .history-chevron{transform:rotate(180deg)}
+    .history-more>.history{min-height:0;margin-top:11px}
     .footer{padding-top:33px;color:#6f7c8d;font-size:12px;line-height:1.9;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.footer small{font-size:11px}.update-btn{border:1px solid #3c4654;background:transparent;color:#a9bbcd;border-radius:9px;font-size:11px;font-weight:650;padding:7px 9px;cursor:pointer;margin-left:12px}.update-btn:hover{border-color:#a1b48b;color:#d9ff57}.hidden{display:none!important}.notice{font-size:12px;color:var(--red);line-height:1.7;margin:11px 0 0;display:none}.notice.show{display:block}
 
     .retry-btn{border:1px solid #62723d;background:#2b3622;color:#e4ffa3;border-radius:9px;font-size:11px;font-weight:770;padding:8px 11px;margin-top:10px;cursor:pointer}
@@ -110,6 +118,10 @@
       <div class="history" id="history">
         <div class="empty"><svg width="33" height="33" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4V8z"/></svg><div><b>아직 다운로드한 영상이 없어요</b><p>위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.</p></div></div>
       </div>
+      <details class="history-more hidden" id="historyMore">
+        <summary><span id="historyMoreLabel">이전 기록 보기</span><span class="history-chevron" aria-hidden="true">⌄</span></summary>
+        <div class="history" id="historyOlder"></div>
+      </details>
     </section>
     <footer class="footer"><div>ClipCatch v__APP_VERSION__ · 내 컴퓨터에서만 작동 <button class="update-btn" id="updateBtn" type="button">영상 엔진 업데이트</button><button class="update-btn" id="checkAppUpdate" type="button">새 버전 확인</button></div><small>저작권·재게시 권한을 확인한 영상만 이용해 주세요.</small></footer>
   </div>
@@ -119,7 +131,9 @@
     let lastState = null;
     const uiVersion = '__APP_VERSION__';
     let loading = false;
-    let lastHistorySignature = '';
+    const HISTORY_PREVIEW_COUNT = 8;
+    let lastRecentHistorySignature = '';
+    let lastOlderHistorySignature = '';
     const toText = (el, txt) => {el.textContent = txt == null ? '' : String(txt);};
     function parseUrls(s) { return (s.match(/https?:\/\/[^\s\"<>]+/g) || []).filter(Boolean); }
     function notice(msg) { toText($('inputNotice'), msg); $('inputNotice').classList.toggle('show', !!msg); }
@@ -228,6 +242,49 @@
       }
       return elem;
     }
+    function jobSignature(jobs) {
+      return JSON.stringify(jobs.map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required,j.speed,j.time]));
+    }
+    function paintJobList(target, jobs, emptyMessage) {
+      const fragment=document.createDocumentFragment();
+      jobs.forEach(j=>fragment.appendChild(renderJob(j)));
+      if (emptyMessage && jobs.length===0) {
+        const empty=document.createElement('div');empty.className='empty';
+        const icon=document.createElement('div');icon.textContent='▧';icon.style.cssText='font-size:30px;color:#748295';
+        const label=document.createElement('div');
+        const b=document.createElement('b');toText(b,'아직 다운로드한 영상이 없어요');
+        const p=document.createElement('p');toText(p,'위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.');
+        label.append(b,p);empty.append(icon,label);fragment.appendChild(empty);
+      }
+      target.replaceChildren(fragment);
+    }
+    function renderHistory(st) {
+      const jobs=st.jobs||[];
+      const recent=jobs.slice(0,HISTORY_PREVIEW_COUNT);
+      const older=jobs.slice(HISTORY_PREVIEW_COUNT);
+      const recentSignature=jobSignature(recent);
+      if (recentSignature!==lastRecentHistorySignature) {
+        lastRecentHistorySignature=recentSignature;
+        paintJobList($('history'),recent,true);
+      }
+      const more=$('historyMore');
+      more.classList.toggle('hidden',older.length===0);
+      toText($('historyCount'),'전체 '+jobs.length+'개');
+      if (older.length===0) {
+        if (more.open) more.open=false;
+        lastOlderHistorySignature='';
+        $('historyOlder').replaceChildren();
+        return;
+      }
+      toText($('historyMoreLabel'), more.open ? '이전 기록 접기' : '이전 기록 '+older.length+'개 더 보기');
+      // Collapsed history is not rendered until requested, keeping the page responsive.
+      if (!more.open) return;
+      const olderSignature=jobSignature(older);
+      if (olderSignature!==lastOlderHistorySignature) {
+        lastOlderHistorySignature=olderSignature;
+        paintJobList($('historyOlder'),older,false);
+      }
+    }
     function render(st) {
       if (!st) return;lastState=st;
       if (st.version && st.version!==uiVersion){window.location.reload();return;}
@@ -251,23 +308,10 @@
         const hasPct=st.setup_pct>0; $('setupProgress').classList.toggle('indeterminate',!hasPct);
         $('setupBar').style.width=hasPct?Math.max(0,Math.min(100,st.setup_pct))+'%':'';
       }
-      const signature=JSON.stringify((st.jobs||[]).map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required]));
-      if (signature!==lastHistorySignature) {
-        lastHistorySignature=signature;
-        const target=$('history');target.replaceChildren();
-        (st.jobs||[]).slice(0,30).forEach(j=>target.appendChild(renderJob(j)));
-        if(!st.jobs || !st.jobs.length){
-          const empty=document.createElement('div');empty.className='empty';
-          const icon=document.createElement('div');icon.textContent='▧';icon.style.cssText='font-size:30px;color:#748295';
-          const label=document.createElement('div');
-          const b=document.createElement('b');toText(b,'아직 다운로드한 영상이 없어요');
-          const p=document.createElement('p');toText(p,'위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.');
-          label.append(b,p);empty.append(icon,label);target.appendChild(empty);
-        }
-        toText($('historyCount'),(st.jobs||[]).length+'개');
-      }
+      renderHistory(st);
     }
     async function poll(){try{const resp=await fetch('/api/state',{cache:'no-store'});if(!resp.ok)throw Error();render(await resp.json());}catch(e){if(lastState)toText($('setupTitle'),'서버 연결이 끊겼어요. 프로그램을 다시 실행해 주세요.');}}
+    $('historyMore').addEventListener('toggle',()=>{if(lastState)renderHistory(lastState);});
     poll();setInterval(poll,1000);
     $('urlInput').focus();
   </script>
