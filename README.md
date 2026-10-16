@@ -1,24 +1,42 @@
-# ClipCatch v1.5.0
+# ClipCatch v1.6.0
 
-Reddit-first Windows video downloader with local browser interface and opt-in, integrity-checked GitHub Releases updates.
+ClipCatch is a local Windows 64-bit web-interface downloader for approved public video platforms, including Reddit, YouTube and X. It uses the official yt-dlp project and FFmpeg and preserves the highest available source quality without re-encoding by default.
 
-- Add up to 10 links at a time; highest available source quality using yt-dlp and FFmpeg without re-encoding by default.
-- Reddit-specific connection-drop retries, IPv4 fallback and optional **Reddit-only** authentication. No automatic Chrome cookie access.
-- Recently downloaded items: 8 displayed by default; older items can be expanded.
-- **Duplicate protection:** identify the same Reddit/X/YouTube post across equivalent URLs; compare against active downloads and a persistent local index of successful downloads (up to 5,000 entries), and check that the original file still exists. Ask before downloading a duplicate; an explicit second download receives a distinct filename instead of overwriting the original.
-- **Job cancellation:** cancel queued items or active yt-dlp downloads individually (and stop child processes on Windows where possible). Cancellation never marks a job as a failed download.
-- **Bulk retry:** retry all failed jobs in the local history, without scheduling the same post more than once.
-- **Update verification:** after a signed-off-by-checksum GitHub update, the updater checks the restarted application's version and health before writing a local success receipt shown in the UI; failures trigger rollback. Windows OS reputation / Smart App Control may still block unsigned executables.
-- All user data, local history, and the duplicate index live under `%LOCALAPPDATA%\ClipCatch`; downloads go to `Downloads\ClipCatch`.
-- No server/API fee and no background remote upload of downloads.
+## Core functions
 
-## Build
+- Accept up to 10 links per batch, retain the last 50 job results (8 expanded in the main screen), and allow an individual job to be cancelled or all failed jobs to be retried.
+- Detect duplicate videos across equivalent Reddit/X/YouTube links and a durable local download index; confirm before downloading an additional copy without overwriting the original.
+- Handle Reddit connection drops with retries and an alternate network route. Users may explicitly provide **Reddit-only** cookies for videos that require access; ClipCatch does not extract Chrome, Edge or other browser login information.
+- Check for ClipCatch application updates and install them only after user confirmation, with file SHA-256 validation, health/version verification and automatic rollback on failure.
+
+## Stability and diagnostics (v1.6.0)
+
+- Check the installed yt-dlp engine against the official SHA-256 checksum **in the background on launch**. This is a check only: no engine file is installed without an explicit button click.
+- Offer stable engine update, optional upstream **nightly** engine recovery (official yt-dlp nightly-builds repository with SHA-256 validation), and one-click rollback to the previous engine.
+- Preserve one previous engine and recover interrupted engine replacement during the next program startup where possible. Previously downloaded video files and history are untouched.
+- Classify common download failures with human-readable titles, recommended next steps and local error codes (`CC-101`, etc.). Raw stderr is not saved for new failures.
+- Provide a **Problem solving** panel that diagnoses tool executability, FFmpeg, download-folder write access, GitHub update reachability and Reddit reachability. This diagnosis runs only when requested.
+- Copy a **redacted diagnostic report** containing versions, predefined statuses and error codes, but never video URLs, Windows file paths, cookies, credentials or raw command output. Clipboard failures fall back to a selectable text field.
+
+## Scope and limitations
+
+- Site login restrictions, deleted/private videos, service rate limits, network outages and platform extractor changes can still prevent downloads. A nightly yt-dlp engine may solve newly changed sites but is less stable than the release version; manual opt-in is required.
+- The program does not bypass site access restrictions, does not edit videos or publish to social media, and does not transmit downloaded video files to a remote server.
+- The application is not Authenticode-signed. Windows Smart App Control may block running unsigned binaries. Do not disable system security protections to use ClipCatch.
+
+## Paths
+
+- Program install: `%LOCALAPPDATA%\Programs\ClipCatch\ClipCatch.exe` (Windows user-local installation)
+- Tools, engine backup and local history: `%LOCALAPPDATA%\ClipCatch`
+- Videos: `%USERPROFILE%\Downloads\ClipCatch`
+
+## Build and release
 
 ```sh
 cd src
 go test ./...
 go vet ./...
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.5.0' -o ../ClipCatch.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.6.0' -o ../ClipCatch.exe .
 ```
 
-To publish, bump the `VERSION` file and commit the matching source to `main`. GitHub Actions builds and publishes the executable and SHA-256 checksums. No account credentials are committed. The application is not Authenticode-signed.
+Publish by changing the root `VERSION` to `1.6.0` and committing all matching source code to `main`. GitHub Actions compiles a Windows binary, runs tests and publishes a new release with SHA-256 sums. Never commit login cookies or raw client logs.

@@ -39,6 +39,32 @@
     .section-actions .retry-btn{margin-top:0}
     .history-feedback{font-size:12px;color:#c5dcad;margin:-5px 0 12px;line-height:1.6}
     .history-feedback.error{color:#ffbdc3}
+
+    .help-panel{margin:4px 0 29px;background:#19202a;border:1px solid #384558;border-radius:17px;overflow:hidden}
+    .help-panel>summary{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;padding:17px 19px;list-style:none;font-size:14px;font-weight:800;color:#e5ecf6}
+    .help-panel>summary::-webkit-details-marker{display:none}
+    .help-panel>summary:hover{background:#202a36}
+    .help-status{color:#a8b5c4;font-weight:650;font-size:11px}
+    .help-body{border-top:1px solid #354251;padding:18px 19px 19px}
+    .help-desc{color:#adbaca;font-size:12px;line-height:1.8;margin:0 0 13px}
+    .help-btn-row{display:flex;flex-wrap:wrap;gap:9px;margin:11px 0 13px}
+    .help-btn{border:1px solid #536174;border-radius:10px;background:#293442;color:#e5f0fc;padding:10px 12px;font-size:12px;font-weight:750;cursor:pointer}
+    .help-btn:hover{border-color:#b9d584;background:#324331}
+    .help-btn:disabled{opacity:.45;cursor:not-allowed}
+    .help-btn.primary{color:#17210d;background:var(--lime);border-color:var(--lime)}
+    .help-msg{color:#c8dbb4;font-size:12px;line-height:1.65;white-space:pre-wrap;min-height:15px;margin:10px 0}
+    .help-msg.error{color:#ffb8c0}
+    .help-checks{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+    .help-check{padding:10px 12px;border:1px solid #384354;border-radius:10px;background:#141d27;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+    .help-check>strong{font-size:12px;color:#e3eaf2;white-space:nowrap}
+    .help-check>span{font-size:11px;color:#a1b1c2;line-height:1.6;text-align:right}
+    .help-check[data-status=error]>span{color:#ffc0c0}
+    .help-check[data-status=warn]>span{color:#ffdb9e}
+    .help-copy{width:100%;min-height:100px;padding:10px;border-radius:10px;border:1px solid #526476;background:#101923;color:#e2edf9;font:12px/1.5 Consolas,monospace}
+    .error-help{font-size:12px;color:#f2bfc4;line-height:1.7;margin-top:11px}
+    .error-help b{font-size:11px;margin-right:6px;color:#ffa8af}
+    .error-help span{display:block;color:#aabdd0}
+    .error-help .retry-btn{margin-top:8px}
     .history-more{margin-top:12px}
     .history-more>summary{list-style:none;display:flex;align-items:center;justify-content:center;gap:9px;padding:13px 18px;border:1px solid #384352;background:#19212b;border-radius:12px;color:#c4d0de;font-size:13px;font-weight:750;cursor:pointer;transition:border-color .15s,background .15s}
     .history-more>summary::-webkit-details-marker{display:none}
@@ -134,6 +160,24 @@
       <span class="perk"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg> 추가 서버·API 비용 없음</span>
     </div>
 
+
+    <details class="help-panel" id="helpPanel">
+      <summary><span>문제 해결 · 엔진 관리</span><span class="help-status" id="engineInfo">엔진 상태 확인 중 ▾</span></summary>
+      <div class="help-body">
+        <p class="help-desc">영상이 안 받아지면 <b>상태 진단하기</b>를 먼저 눌러 줘. 그 다음 안정판 업데이트를 시도하고, 해결되지 않으면 시험판 복구를 사용할 수 있어. <b>원본 영상과 다운로드 내역은 건드리지 않아.</b></p>
+        <div class="help-btn-row">
+          <button class="help-btn primary" id="runDiagnostics" type="button">상태 진단하기</button>
+          <button class="help-btn" id="updateEngineStable" type="button">안정판 엔진 업데이트</button>
+          <button class="help-btn" id="repairEngineNightly" type="button">시험판 엔진 복구</button>
+          <button class="help-btn" id="rollbackEngine" type="button">이전 엔진으로 되돌리기</button>
+          <button class="help-btn" id="copyDiagnostics" type="button">진단 결과 복사</button>
+        </div>
+        <p class="help-msg" id="repairFeedback" aria-live="polite">자동으로 업데이트 가능 여부를 확인해. 업데이트는 버튼을 눌렀을 때만 설치해.</p>
+        <p class="help-msg" id="diagnosticSummary">진단 버튼을 누르면 다운로드 도구·저장 폴더·접속 상태를 확인해 줘.</p>
+        <div class="help-checks" id="diagnosticChecks"></div>
+        <textarea id="diagnosticCopyFallback" class="help-copy hidden" readonly aria-label="공유용 진단 결과"></textarea>
+      </div>
+    </details>
     <section>
       <div class="section-head"><div class="section-title">다운로드 내역</div><div class="section-actions"><button id="retryFailed" type="button" class="retry-btn hidden">실패한 영상 다시 시도</button><div class="count" id="historyCount">0개</div></div></div>
       <p class="history-feedback hidden" id="historyFeedback" role="status" aria-live="polite"></p>
@@ -292,7 +336,7 @@
       const bottom=document.createElement('div');bottom.className='job-bottom';
       const detail=document.createElement('div');detail.className='job-detail';
       const extra = j.status==='done' ? (j.file ? ' · ' + j.file.split(/[\\/]/).pop() : '') : '';
-      toText(detail, (j.detail||'') + extra);bottom.appendChild(detail);
+      toText(detail, (j.status==='error' && j.error_title ? j.error_title : (j.detail||'')) + extra);bottom.appendChild(detail);
       const meta=document.createElement('div');meta.style.whiteSpace='nowrap';
       toText(meta,j.status==='downloading' ? (Math.round(j.percent||0)+'%'+(j.speed&&j.speed!=='NA'?' · '+j.speed:'')) : j.time);
       bottom.appendChild(meta);elem.appendChild(bottom);
@@ -308,6 +352,12 @@
         actions.appendChild(cancel);
       }
       if(j.status==='error') {
+        if(j.error_code){
+          const help=document.createElement('div');help.className='error-help';
+          const title=document.createElement('b');toText(title,j.error_code+' · '+(j.error_title||'문제 발생'));help.appendChild(title);
+          const advice=document.createElement('span');toText(advice,j.error_advice||'상태 진단을 진행해 줘.');help.appendChild(advice);
+          elem.appendChild(help);
+        }
         const retry=document.createElement('button'); retry.className='retry-btn';retry.type='button';toText(retry,'이 링크 재시도');
         retry.addEventListener('click',()=>{
           $('urlInput').value=j.url;updateCount();submitLinks();
@@ -319,12 +369,15 @@
           auth.addEventListener('click',()=>{$('redditAuthDetails').open=true;$('redditAuthDetails').scrollIntoView({behavior:'smooth'});});
           actions.appendChild(auth);
         }
+        const helpBtn=document.createElement('button');helpBtn.className='retry-btn';helpBtn.type='button';toText(helpBtn,'문제 해결 열기');
+        helpBtn.addEventListener('click',()=>{$('helpPanel').open=true;$('helpPanel').scrollIntoView({behavior:'smooth',block:'center'});});
+        actions.appendChild(helpBtn);
       }
       if(actions.childNodes.length)elem.appendChild(actions);
       return elem;
     }
     function jobSignature(jobs) {
-      return JSON.stringify(jobs.map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required,j.speed,j.time,j.redownload]));
+      return JSON.stringify(jobs.map(j=>[j.id,j.status,j.percent,j.detail,j.title,j.file,j.auth_required,j.speed,j.time,j.redownload,j.error_code,j.error_title,j.error_advice]));
     }
     function paintJobList(target, jobs, emptyMessage) {
       const fragment=document.createDocumentFragment();
@@ -368,6 +421,39 @@
       if (olderSignature!==lastOlderHistorySignature) {
         lastOlderHistorySignature=olderSignature;
         paintJobList($('historyOlder'),older,false);
+      }
+    }
+    let lastDiagSignature = '';
+    function drawDiagnostics(st){
+      const e=st.engine||{};const d=st.diagnostics||{};
+      const chan=e.channel==='nightly'?'시험판':'안정판';
+      toText($('engineInfo'),chan+' · '+(e.message||'상태 확인 중')+' ▾');
+      $('rollbackEngine').disabled=!e.can_rollback||st.phase!=='ready';
+      $('repairEngineNightly').disabled=st.phase!=='ready';
+      $('updateEngineStable').disabled=st.phase!=='ready';
+      $('runDiagnostics').disabled=d.status==='checking';
+      if(st.phase==='preparing'){
+        toText($('repairFeedback'),(st.setup_text||'엔진 준비 중...')+(st.setup_pct>0?' · '+Math.round(st.setup_pct)+'%':''));
+        $('repairFeedback').classList.remove('error');
+      }else if(st.setup_text==='업데이트 실패' && st.setup_error){
+        toText($('repairFeedback'),'엔진 업데이트 실패 · 진단을 실행해 줘.');
+        $('repairFeedback').classList.add('error');
+      }else if(['시험판 엔진 복구 완료','yt-dlp 업데이트 완료','엔진 되돌리기 완료'].includes(st.setup_text)){
+        toText($('repairFeedback'),st.setup_text+' · 완료');
+        $('repairFeedback').classList.remove('error');
+      }
+      toText($('diagnosticSummary'),d.summary||'진단 버튼을 눌러 줘.');
+      const signature=JSON.stringify(d.checks||[]);
+      if(signature!==lastDiagSignature){
+        lastDiagSignature=signature;
+        const parent=$('diagnosticChecks');const fragment=document.createDocumentFragment();
+        for(const c of (d.checks||[])){
+          const div=document.createElement('div');div.className='help-check';div.dataset.status=c.status;
+          const name=document.createElement('strong');toText(name,c.name);
+          const status=document.createElement('span');toText(status,(c.status==='ok'?'정상 · ':c.status==='error'?'문제 · ':'확인 필요 · ')+(c.message||''));
+          div.append(name,status);fragment.appendChild(div);
+        }
+        parent.replaceChildren(fragment);
       }
     }
     function render(st) {
@@ -418,6 +504,7 @@
         $('setupBar').style.width=hasPct?Math.max(0,Math.min(100,st.setup_pct))+'%':'';
       }
       renderHistory(st);
+      drawDiagnostics(st);
     }
     async function poll(){try{const resp=await fetch('/api/state',{cache:'no-store'});if(!resp.ok)throw Error();render(await resp.json());}catch(e){if(lastState)toText($('setupTitle'),'서버 연결이 끊겼어요. 프로그램을 다시 실행해 주세요.');}}
     $('historyMore').addEventListener('toggle',()=>{if(lastState)renderHistory(lastState);});
@@ -429,6 +516,43 @@
         historyNotice(res.count ? '실패한 영상 '+res.count+'개를 다시 시도할게.'+(res.skipped?' 중복 '+res.skipped+'개 제외.':'') : '다시 시도할 실패 영상이 없어.');
         await poll();
       } catch(err){historyNotice('일괄 재시도 실패: '+err.message,true);$('retryFailed').disabled=false;}
+    });
+    function repairMessage(message,isError=false){
+      const out=$('repairFeedback');toText(out,message);out.classList.toggle('error',isError);
+    }
+    async function repairAction(path,label){
+      $('helpPanel').open=true;
+      repairMessage(label+' 시작 중...');
+      try{await post(path);await poll();repairMessage(label+' 요청 완료 · 화면에 진행 상태가 표시돼.');}
+      catch(err){repairMessage(label+' 실패 · '+err.message,true);}
+    }
+    $('runDiagnostics').addEventListener('click',async()=>{
+      repairMessage('진단을 실행하고 있어...');
+      try{await post('/api/run-diagnostics');await poll();repairMessage('진단 진행 중 · 결과가 아래 표시될 거야.');}
+      catch(err){repairMessage('진단 시작 실패 · '+err.message,true);}
+    });
+    $('updateEngineStable').addEventListener('click',()=>repairAction('/api/update-tool','안정판 엔진 업데이트'));
+    $('repairEngineNightly').addEventListener('click',()=>{
+      if(!confirm('공식 시험판 다운로드 엔진으로 교체할까? 시험판은 최신 사이트 수정이 있지만 안정성이 낮을 수 있어. 문제가 생기면 [이전 엔진으로 되돌리기]를 눌러 줘.'))return;
+      repairAction('/api/repair-engine','시험판 엔진 복구');
+    });
+    $('rollbackEngine').addEventListener('click',()=>{
+      if(!confirm('현재 엔진을 이전에 사용하던 엔진으로 되돌릴까? 다운로드한 영상은 그대로 남아.'))return;
+      repairAction('/api/rollback-engine','이전 엔진 복구');
+    });
+    $('copyDiagnostics').addEventListener('click',async()=>{
+      try{
+        const resp=await fetch('/api/diagnostic-report',{cache:'no-store'});const data=await resp.json();
+        if(!resp.ok)throw Error(data.error||'진단 결과를 가져오지 못했어');
+        try{
+          await navigator.clipboard.writeText(data.report);
+          repairMessage('진단 정보를 복사했어. 원본 영상 링크·파일 경로·로그인 정보는 포함하지 않아.');
+        }catch(e){
+          $('diagnosticCopyFallback').classList.remove('hidden');$('diagnosticCopyFallback').value=data.report;
+          $('diagnosticCopyFallback').focus();$('diagnosticCopyFallback').select();
+          repairMessage('복사가 차단됐어. 아래 선택된 텍스트를 Ctrl+C로 복사해 줘.');
+        }
+      }catch(err){repairMessage('진단 정보 복사 실패 · '+err.message,true);}
     });
     poll();setInterval(poll,1000);
     $('urlInput').focus();

@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.5.0"
+	appDefaultVersion = "1.6.0"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -58,19 +58,24 @@ type Job struct {
 	Time         string  `json:"time"`
 	AuthRequired bool    `json:"auth_required,omitempty"`
 	Redownload   bool    `json:"redownload,omitempty"`
+	ErrorCode    string  `json:"error_code,omitempty"`
+	ErrorTitle   string  `json:"error_title,omitempty"`
+	ErrorAdvice  string  `json:"error_advice,omitempty"`
 }
 
 type ClientState struct {
-	Version         string         `json:"version"`
-	Phase           string         `json:"phase"`
-	SetupText       string         `json:"setup_text"`
-	SetupPct        float64        `json:"setup_pct"`
-	SetupError      string         `json:"setup_error"`
-	SaveDir         string         `json:"save_dir"`
-	Jobs            []*Job         `json:"jobs"`
-	AppUpdate       UpdateInfo     `json:"app_update"`
-	RedditAuthReady bool           `json:"reddit_auth_ready"`
-	UpdateReceipt   *UpdateReceipt `json:"update_receipt,omitempty"`
+	Version         string          `json:"version"`
+	Phase           string          `json:"phase"`
+	SetupText       string          `json:"setup_text"`
+	SetupPct        float64         `json:"setup_pct"`
+	SetupError      string          `json:"setup_error"`
+	SaveDir         string          `json:"save_dir"`
+	Jobs            []*Job          `json:"jobs"`
+	AppUpdate       UpdateInfo      `json:"app_update"`
+	RedditAuthReady bool            `json:"reddit_auth_ready"`
+	UpdateReceipt   *UpdateReceipt  `json:"update_receipt,omitempty"`
+	Engine          EngineInfo      `json:"engine"`
+	Diagnostics     DiagnosticState `json:"diagnostics"`
 }
 
 type App struct {
@@ -93,6 +98,7 @@ type App struct {
 	downloaded    map[string]downloadRecord
 	latestRelease verifiedRelease
 	redditCookies []byte
+	engineMeta    EngineMetadata
 }
 
 func newApp(dataDir, saveDir string) *App {
@@ -111,6 +117,8 @@ func newApp(dataDir, saveDir string) *App {
 		Jobs:      make([]*Job, 0),
 		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
+	a.loadEngineMetadata()
+	a.state.Diagnostics = DiagnosticState{Status: "idle", Summary: "문제 해결에서 상태를 확인할 수 있어"}
 	a.loadHistory()
 	a.loadDownloadIndex()
 	a.loadRememberedRedditAuth()
@@ -172,6 +180,15 @@ func (a *App) routes() {
 	mux.HandleFunc("POST /api/cancel-download", a.cancelDownloadHandler)
 	mux.HandleFunc("POST /api/retry-failed", a.retryFailedHandler)
 	mux.HandleFunc("POST /api/update-tool", a.updateToolHandler)
+	mux.HandleFunc("POST /api/repair-engine", a.repairEngineHandler)
+	mux.HandleFunc("POST /api/rollback-engine", a.rollbackEngineHandler)
+	mux.HandleFunc("POST /api/run-diagnostics", a.runDiagnosticsHandler)
+	mux.HandleFunc("GET /api/diagnostic-report", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		result := buildDiagnosticReport(a.state)
+		a.mu.Unlock()
+		writeJSON(w, 200, map[string]string{"report": result})
+	})
 	mux.HandleFunc("POST /api/upload-reddit-cookies", a.uploadRedditCookiesHandler)
 	mux.HandleFunc("POST /api/clear-reddit-cookies", a.clearRedditCookiesHandler)
 	mux.HandleFunc("POST /api/check-app-update", a.checkAppUpdateHandler)
@@ -381,76 +398,12 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) updateToolHandler(w http.ResponseWriter, r *http.Request) {
-	a.mu.Lock()
-	if a.state.Phase != "ready" {
-		a.mu.Unlock()
-		writeError(w, 409, "도구 준비 또는 업데이트가 끝난 다음 시도해 주세요.")
+	if !a.beginEngineOperation(w, "stable", "update") {
 		return
 	}
-	for _, j := range a.state.Jobs {
-		if j.Status == "queued" || j.Status == "downloading" {
-			a.mu.Unlock()
-			writeError(w, 409, "진행 중인 다운로드가 끝난 뒤 업데이트해 주세요.")
-			return
-		}
-	}
-	a.state.Phase = "preparing"
-	a.state.SetupText = "yt-dlp 업데이트를 확인하는 중..."
-	a.state.SetupPct = 0
-	a.state.SetupError = ""
-	a.mu.Unlock()
-	go a.updateTool()
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	go a.replaceEngine("stable")
 }
-
-func (a *App) updateTool() {
-	if runtime.GOOS != "windows" {
-		a.setSetup("ready", "업데이트 미지원", "Windows 배포판에서 이용해 주세요.", 0)
-		return
-	}
-	checksum, err := fetchYtDlpHash()
-	if err != nil {
-		a.setSetup("ready", "업데이트 실패", "공식 버전 확인 실패: "+err.Error(), 0)
-		return
-	}
-	if err := os.MkdirAll(a.toolDir, 0755); err != nil {
-		a.setSetup("ready", "업데이트 실패", err.Error(), 0)
-		return
-	}
-	next := filepath.Join(a.toolDir, "yt-dlp-next.exe")
-	dest := filepath.Join(a.toolDir, "yt-dlp.exe")
-	_ = os.Remove(next)
-	if err := downloadVerified(ytDlpURL, next, checksum, func(now, total int64) {
-		a.setSetup("preparing", "yt-dlp 최신 버전 다운로드 중...", "", percent(now, total))
-	}); err != nil {
-		a.setSetup("ready", "업데이트 실패", err.Error(), 0)
-		return
-	}
-	backup := filepath.Join(a.toolDir, "yt-dlp-backup.exe")
-	_ = os.Remove(backup)
-	movedOld := false
-	if nonempty(dest) {
-		if err := os.Rename(dest, backup); err != nil {
-			a.setSetup("ready", "업데이트 실패", "기존 파일을 교체하지 못했습니다: "+err.Error(), 0)
-			return
-		}
-		movedOld = true
-	}
-	if err := os.Rename(next, dest); err != nil {
-		if movedOld {
-			_ = os.Rename(backup, dest)
-		}
-		a.setSetup("ready", "업데이트 실패", "새 파일을 설치하지 못했습니다: "+err.Error(), 0)
-		return
-	}
-	if movedOld {
-		_ = os.Remove(backup)
-	}
-	a.mu.Lock()
-	a.ytDlp = dest
-	a.mu.Unlock()
-	a.setSetup("ready", "yt-dlp 업데이트 완료", "", 100)
-}
+func (a *App) updateTool() { a.replaceEngine("stable") }
 
 func (a *App) setSetup(phase, message, errText string, pct float64) {
 	a.mu.Lock()
@@ -684,7 +637,12 @@ func (a *App) runDownload(id string) {
 			}
 			j.Status = "error"
 			j.AuthRequired = needsAuth(msg) || initialAccessBlock || isRedditAccessBlock(msg)
-			j.Detail = cut(friendlyError(msg), 520)
+			j.ErrorCode, j.ErrorTitle, j.ErrorAdvice = classifyDownloadError(msg, j.Host)
+			// Never persist raw stderr: sites may echo URLs or secret query tokens.
+			j.Detail = j.ErrorTitle
+			if j.ErrorCode == "CC-101" {
+				j.Detail = "영상 서버가 연결을 끊었어. 원본 링크에서 재생되는지 확인해 줘."
+			}
 		})
 		return
 	}
@@ -883,6 +841,11 @@ func (a *App) bootstrap() {
 		a.setSetup("ready", "테스트 준비 완료", "", 100)
 		return
 	}
+	// Recover interrupted engine replacement before checking for missing tools.
+	if err := recoverInterruptedEngineFiles(a.toolDir); err != nil {
+		a.setSetup("error", "다운로드 엔진 복구 실패", "문제 해결 화면에서 진단해 줘.", 0)
+		return
+	}
 	if err := os.MkdirAll(a.toolDir, 0755); err != nil {
 		a.setSetup("error", "설치 폴더 생성 실패", err.Error(), 0)
 		return
@@ -963,6 +926,7 @@ func (a *App) bootstrap() {
 		a.ffmpeg = filepath.Join(a.toolDir, ffbin)
 	}
 	a.setSetup("ready", "다운로드 준비 완료", "", 100)
+	go a.engineCheckOnStartup()
 }
 func nonempty(path string) bool {
 	fi, err := os.Stat(path)
