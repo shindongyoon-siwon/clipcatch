@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.4.0"
+	appDefaultVersion = "1.4.1"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -473,19 +473,32 @@ func (a *App) downloadArgs(j *Job) []string {
 	return a.downloadArgsForAttempt(j, false)
 }
 
-func (a *App) downloadArgsForAttempt(j *Job, impersonate bool) []string {
+func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool) []string {
+	retries, fragmentRetries := "3", "3"
+	if isRedditHost(j.Host) {
+		retries, fragmentRetries = "6", "6"
+	}
 	args := []string{
 		"--ignore-config", "--no-playlist", "--newline", "--progress",
 		"--progress-template", "download:CLIP_PROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
 		"--print", "before_dl:CLIP_TITLE|%(title)s",
 		"--print", "after_move:CLIP_FILE|%(filepath)s",
-		"--retries", "3", "--fragment-retries", "3", "--socket-timeout", "30",
+		"--retries", retries, "--fragment-retries", fragmentRetries, "--socket-timeout", "30",
 		"--merge-output-format", "mp4/mkv", "-f", "bv*+ba/b",
 		"-P", a.saveDir,
 		"-o", "%(title).120B [%(id)s].%(ext)s",
 	}
+	if isRedditHost(j.Host) {
+		// Retry video/CDN disconnects before falling back to a different route.
+		// yt-dlp keeps .part files and continues partial downloads by default.
+		args = append(args, "--retry-sleep", "http:2", "--retry-sleep", "fragment:2")
+	}
 	if a.ffmpeg != "" {
 		args = append(args, "--ffmpeg-location", filepath.Dir(a.ffmpeg))
+	}
+	if len(forceIPv4) > 0 && forceIPv4[0] && isRedditHost(j.Host) {
+		// An alternate network route can recover from a broken IPv6/CDN path.
+		args = append(args, "--force-ipv4")
 	}
 	// This changes only the HTTP client fingerprint. It does NOT open Chrome,
 	// read its cookie database or access any logged-in account.
@@ -505,9 +518,24 @@ func isRedditHost(host string) bool {
 	return false
 }
 
-// Retry only Reddit authorization or HTTP 403 failures. Do not hammer Reddit
-// on HTTP 429 rate limits, which can make its anti-abuse block worse.
-func shouldRetryReddit(msg string) bool {
+// The remote peer may close a Reddit media request before sending a response.
+// This is distinct from an authentication failure and should not prompt the
+// user to export a browser session.
+func isRedditConnectionDrop(msg string) bool {
+	s := strings.ToLower(msg)
+	for _, sign := range []string{
+		"remotedisconnected", "remote end closed connection without response",
+		"connection aborted", "connection reset by peer", "connectionreseterror",
+		"unexpected eof", "read timed out", "connection timed out",
+	} {
+		if strings.Contains(s, sign) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRedditAccessBlock(msg string) bool {
 	s := strings.ToLower(msg)
 	if strings.Contains(s, "429") || strings.Contains(s, "too many requests") {
 		return false
@@ -515,6 +543,16 @@ func shouldRetryReddit(msg string) bool {
 	return needsAuth(msg) || strings.Contains(s, "http error 403") ||
 		strings.Contains(s, "403 forbidden") || strings.Contains(s, "403: blocked") ||
 		strings.Contains(s, "failed to parse json")
+}
+
+// Explicitly avoid retries on 429 rate limits. No need to impersonate a browser
+// on an ordinary network disconnect; forcing IPv4 is a safer first fallback.
+func shouldRetryReddit(msg string) bool {
+	s := strings.ToLower(msg)
+	if strings.Contains(s, "429") || strings.Contains(s, "too many requests") {
+		return false
+	}
+	return isRedditAccessBlock(msg) || isRedditConnectionDrop(msg)
 }
 
 func (a *App) runDownload(id string) {
@@ -530,16 +568,28 @@ func (a *App) runDownload(id string) {
 
 	err, msg := a.runDownloadAttempt(id, j, false)
 	redditNeedsRetry := err != nil && isRedditHost(j.Host) && shouldRetryReddit(msg)
+	initialAccessBlock := redditNeedsRetry && isRedditAccessBlock(msg)
 	if redditNeedsRetry {
+		networkDrop := isRedditConnectionDrop(msg)
 		a.mutateJob(id, func(j *Job) {
-			j.Detail = "레딧 접근 제한으로 다른 연결 방식을 자동 시도 중..."
+			if networkDrop {
+				j.Detail = "레딧 영상 서버 연결 끊김. 다른 네트워크 방식으로 재시도 중..."
+			} else {
+				j.Detail = "레딧 접근 제한으로 다른 연결 방식을 자동 시도 중..."
+			}
 			j.Percent = 0
 		})
-		err, msg = a.runDownloadAttempt(id, j, true)
+		if networkDrop {
+			// Do not invoke browser impersonation on a flaky media connection:
+			// that can make downloading less reliable. Try IPv4 instead.
+			err, msg = a.runDownloadAttemptIPv4(id, j)
+		} else {
+			err, msg = a.runDownloadAttempt(id, j, true)
+		}
 	}
-	// Third and final attempt uses only the explicitly imported Reddit-scoped
-	// cookies. No Chrome profile or other website's credentials are read.
-	if err != nil && redditNeedsRetry {
+	// Reddit-only cookies are helpful for access restrictions, not a broken
+	// network route. Never read Chrome profiles or other websites' sessions.
+	if err != nil && isRedditHost(j.Host) && (initialAccessBlock || isRedditAccessBlock(msg)) {
 		cookieData := a.copyRedditCookies()
 		if len(cookieData) > 0 {
 			a.mutateJob(id, func(j *Job) { j.Detail = "레딧 전용 로그인으로 마지막 재시도 중..."; j.Percent = 0 })
@@ -555,7 +605,7 @@ func (a *App) runDownload(id string) {
 		}
 		a.mutateJob(id, func(j *Job) {
 			j.Status = "error"
-			j.AuthRequired = needsAuth(msg) || redditNeedsRetry
+			j.AuthRequired = needsAuth(msg) || initialAccessBlock || isRedditAccessBlock(msg)
 			j.Detail = cut(friendlyError(msg), 520)
 		})
 		return
@@ -567,7 +617,15 @@ func (a *App) runDownload(id string) {
 }
 
 func (a *App) runDownloadAttempt(id string, j *Job, impersonate bool, cookieFile ...string) (error, string) {
-	args := a.downloadArgsForAttempt(j, impersonate)
+	return a.runDownloadAttemptNetwork(id, j, impersonate, false, cookieFile...)
+}
+
+func (a *App) runDownloadAttemptIPv4(id string, j *Job) (error, string) {
+	return a.runDownloadAttemptNetwork(id, j, false, true)
+}
+
+func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv4 bool, cookieFile ...string) (error, string) {
+	args := a.downloadArgsForAttempt(j, impersonate, forceIPv4)
 	if len(cookieFile) > 0 && isRedditHost(j.Host) {
 		var err error
 		args, err = addCookieArg(args, cookieFile[0])
@@ -691,6 +749,8 @@ func friendlyError(msg string) string {
 	switch {
 	case needsAuth(msg):
 		return "레딧에서 로그인을 요구했어. 아래 [레딧 인증 연결]에 레딧 전용 cookies.txt를 등록한 뒤 재시도해 줘.\n" + tailMsg(msg)
+	case isRedditConnectionDrop(msg):
+		return "영상 서버가 연결을 끊었어. 다른 연결 방식으로 재시도했지만 실패했어. 원본 링크가 브라우저에서 정상 재생되는지 확인해 줘.\n" + tailMsg(msg)
 	case strings.Contains(s, "403"), strings.Contains(s, "429"):
 		return "사이트에서 접근을 제한했어. 레딧이라면 /comments/가 포함된 원본 게시물 주소로 시도해 줘.\n" + tailMsg(msg)
 	case strings.Contains(s, "private"), strings.Contains(s, "not available"), strings.Contains(s, "unavailable"):
