@@ -184,12 +184,21 @@ func (a *App) checkAppUpdate() {
 
 func (a *App) checkAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
-	busy := a.state.AppUpdate.Status == "downloading" || a.state.AppUpdate.Status == "installing" || a.state.AppUpdate.Status == "checking"
-	a.mu.Unlock()
-	if busy {
-		writeError(w, http.StatusConflict, "이미 업데이트를 확인하거나 설치 중입니다.")
+	switch a.state.AppUpdate.Status {
+	case "downloading", "installing":
+		a.mu.Unlock()
+		writeError(w, http.StatusConflict, "업데이트 설치가 끝난 후 다시 확인해 주세요.")
+		return
+	case "checking":
+		a.mu.Unlock()
+		// The automatic startup check may already be running. Treat a click as
+		// a request to SHOW the in-progress status, not an error or another fetch.
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "already_running": true})
 		return
 	}
+	// Claim the operation before starting the goroutine to prevent duplicate checks.
+	a.state.AppUpdate = UpdateInfo{Status: "checking", Detail: "새로운 버전 확인 중..."}
+	a.mu.Unlock()
 	go a.checkAppUpdate()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
