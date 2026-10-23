@@ -17,6 +17,26 @@ import (
 
 // Downloads remain recognizable even after the visible history is trimmed.
 // Nothing here reads browser profiles or changes the downloaded video files.
+const historyLimit = 30
+
+// trimHistoryLocked bounds terminal results while preserving every active job.
+// Caller must already hold a.mu.
+func (a *App) trimHistoryLocked() {
+	kept := a.state.Jobs[:0]
+	terminalCount := 0
+	for _, job := range a.state.Jobs {
+		finished := job.Status == "done" || job.Status == "error" || job.Status == "cancelled"
+		if finished {
+			if terminalCount >= historyLimit {
+				continue
+			}
+			terminalCount++
+		}
+		kept = append(kept, job)
+	}
+	a.state.Jobs = kept
+}
+
 type downloadRecord struct {
 	File  string `json:"file"`
 	Title string `json:"title"`
@@ -40,6 +60,7 @@ func canonicalJobKey(raw string) string {
 	if err != nil {
 		return raw
 	}
+	stripUTMQueryParams(u)
 	host := strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
 	p := strings.TrimRight(u.Path, "/")
 	switch {
@@ -77,6 +98,20 @@ func (a *App) loadDownloadIndex() {
 	}
 	var records map[string]downloadRecord
 	if json.Unmarshal(data, &records) == nil && len(records) <= 20000 {
+		// Keep duplicate detection consistent for legacy URLs containing UTM keys.
+		for key, record := range records {
+			if at := strings.Index(key, "?"); at >= 0 {
+				query := &url.URL{RawQuery: key[at+1:]}
+				stripUTMQueryParams(query)
+				normalized := key[:at+1] + query.RawQuery
+				if normalized != key {
+					if prev, ok := records[normalized]; !ok || prev.Stamp < record.Stamp {
+						records[normalized] = record
+					}
+					delete(records, key)
+				}
+			}
+		}
 		a.downloaded = records
 	}
 }
@@ -122,12 +157,13 @@ func (a *App) saveHistory() {
 			}
 		}
 		if j.Status == "done" || j.Status == "error" || j.Status == "cancelled" {
-			if len(history) < 50 {
+			if len(history) < historyLimit {
 				cp := *j
 				history = append(history, &cp)
 			}
 		}
 	}
+	a.trimHistoryLocked()
 	// Bound the disk index to avoid unbounded growth during daily content work.
 	if len(a.downloaded) > 5000 {
 		type entry struct {
