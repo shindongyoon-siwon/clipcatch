@@ -127,11 +127,11 @@
         <div class="safe-note">회사 PC 보호 · Chrome 전체 로그인 정보 접근 없음 · 업데이트는 확인 후 설치</div>
 
 <details id="browserLinkPanel" class="reddit-auth">
-<summary>Reddit 저장이 안 될 때 · 브라우저에서 가져오기</summary>
-<p>원본 게시물을 Chrome에서 재생한 다음 <b>ClipCatch Browser</b> 확장에서 보내면 돼. 쿠키·비밀번호는 읽지 않아.</p>
-<p>처음 한 번: 설치 폴더 열기 → <b>chrome://extensions</b> 에서 개발자 모드 → [압축해제된 확장 프로그램을 로드합니다] → 아래 폴더 선택. 회사 정책으로 설치가 제한되면 관리자에게 요청해 줘.</p>
+<summary>유튜브·인스타·X·Reddit · 브라우저에서 바로 다운로드</summary>
+<p>원하는 영상 게시물에서 크롬 퍼즐 모양(🧩) → <b>ClipCatch Browser</b> → [현재 영상 다운로드]를 누르면 돼. Reddit은 다운로드가 실패할 때만 [재생 영상 찾기] 기능을 사용해. 비밀번호·쿠키는 읽지 않아.</p>
+<p>최초 한 번: [확장프로그램 폴더 열기] → 크롬 주소창에 <b>chrome://extensions</b> → 개발자 모드 → [압축해제된 확장 프로그램을 로드합니다] → 열린 폴더 선택. 이후 ClipCatch 업데이트로 확장 파일도 갱신돼. 이미 설치했다면 크롬 확장프로그램 화면에서 [새로고침]을 눌러 적용해 줘. 회사 정책으로 제한되면 관리자에게 요청해 줘.</p>
 <div class="reddit-auth-controls">
-<button type="button" id="installBrowserExtension">확장 설치 폴더 열기</button>
+<button type="button" id="installBrowserExtension">확장프로그램 폴더 열기</button>
 <button type="button" id="makeBrowserCode">연결 코드 만들기</button>
 <button type="button" id="revokeBrowserLink" class="plain-btn">연결 해제</button></div>
 <p id="browserExtensionPath" style="overflow-wrap:anywhere"></p>
@@ -139,7 +139,7 @@
 <input id="browserPairCode" readonly aria-label="ClipCatch pairing code" style="width:100%;padding:10px"/>
 <button type="button" id="copyBrowserCode">연결 코드 복사</button></div>
 <div id="browserLinkStatus" class="reddit-auth-status" role="status"></div>
-<p>재생 주소를 전달하는 보조 기능이야. 영상 서버의 접근 제한·DRM을 해제하지 않아.</p>
+<p>사이트별 공개 게시물 주소를 ClipCatch 다운로드 대기열로 보내는 기능이야. 다운로드 완료 여부는 ClipCatch에서 확인해 줘. 로그인·접근 제한·DRM은 우회하지 않아.</p>
 </details>
         <details id="redditAuthDetails" class="reddit-auth">
           <summary>레딧에서 로그인 요구할 때만 · 레딧 인증 연결</summary>
