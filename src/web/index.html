@@ -89,6 +89,9 @@
     .reddit-auth-status{color:#aaca8b;margin-top:9px;font-size:12px}
 
       .safe-note{margin:14px 0 4px;padding:12px 16px;border:1px solid #485743;border-radius:12px;color:#c3d8b2;background:#1e2a24;font-size:12px;}
+    a.job-url{display:block;cursor:pointer}
+    a.job-url:hover{color:#d9ff57;text-decoration:underline}
+    a.job-url:focus-visible{outline:2px solid var(--lime);outline-offset:3px}
 </style>
 </head>
 <body>
@@ -214,6 +217,21 @@
     let lastOlderHistorySignature = '';
     const toText = (el, txt) => {el.textContent = txt == null ? '' : String(txt);};
     function parseUrls(s) { return (s.match(/https?:\/\/[^\s\"<>]+/g) || []).filter(Boolean); }
+    function cleanDisplayedURL(raw) {
+      try {
+        const u = new URL(raw);
+        if (u.protocol !== 'https:' && u.protocol !== 'http:' || u.username || u.password) return '';
+        // Preserve non-UTM query encoding, including signed/video ID parameters.
+        if (u.search) {
+          const kept = u.search.slice(1).split('&').filter(pair=>{
+            try { return !decodeURIComponent(pair.split('=')[0].replace(/\+/g,' ')).toLowerCase().startsWith('utm_'); }
+            catch (_) { return true; }
+          });
+          u.search = kept.length ? '?'+kept.join('&') : '';
+        }
+        return u.href;
+      } catch (_) { return ''; }
+    }
     function notice(msg) { toText($('inputNotice'), msg); $('inputNotice').classList.toggle('show', !!msg); }
     function historyNotice(msg, error=false){
       const el=$('historyFeedback');toText(el,msg);el.classList.toggle('hidden',!msg);el.classList.toggle('error',error);
@@ -327,7 +345,11 @@
       const top = document.createElement('div');top.className='job-top';
       const left = document.createElement('div');left.style.minWidth = '0';left.style.flex = '1';
       const title = document.createElement('div');title.className='job-title';toText(title,j.title === '제목 확인 중...' ? j.host+' · 영상 정보 확인 중' : j.title);left.appendChild(title);
-      const link = document.createElement('div');link.className='job-url';toText(link,j.url);left.appendChild(link);top.appendChild(left);
+      const clean = cleanDisplayedURL(j.url);
+      const link = document.createElement(clean ? 'a' : 'div');
+      link.className='job-url';toText(link,clean || j.url);
+      if (clean) {link.href=clean;link.target='_blank';link.rel='noopener noreferrer';link.title='원본 게시물 열기';}
+      left.appendChild(link);top.appendChild(left);
       const status = document.createElement('div');status.className='job-status '+j.status;
       toText(status,({queued:'대기',downloading:'다운로드 중',done:'완료',error:'실패',cancelled:'취소됨'})[j.status]||j.status);top.appendChild(status);elem.appendChild(top);
       if (j.status === 'downloading') {
@@ -363,7 +385,7 @@
           $('urlInput').value=j.url;updateCount();submitLinks();
         });
         actions.appendChild(retry);
-        if (j.auth_required && /reddit\.com|redd\.it/i.test(j.host || '')) {
+        if (j.auth_required && !(lastState && lastState.reddit_auth_ready) && /reddit\.com|redd\.it/i.test(j.host || '')) {
           const auth=document.createElement('button');auth.type='button';auth.className='retry-btn';
           toText(auth,'레딧 로그인 연결하기');
           auth.addEventListener('click',()=>{$('redditAuthDetails').open=true;$('redditAuthDetails').scrollIntoView({behavior:'smooth'});});

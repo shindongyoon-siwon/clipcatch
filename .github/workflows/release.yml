@@ -1,6 +1,8 @@
 name: ClipCatch Windows Release
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
     paths:
@@ -47,6 +49,7 @@ jobs:
           test -s ClipCatch.exe
 
       - name: Publish new version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

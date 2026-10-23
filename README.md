@@ -1,10 +1,17 @@
-# ClipCatch v1.6.0
+# ClipCatch v1.6.1
 
 ClipCatch is a local Windows 64-bit web-interface downloader for approved public video platforms, including Reddit, YouTube and X. It uses the official yt-dlp project and FFmpeg and preserves the highest available source quality without re-encoding by default.
 
+## v1.6.1 improvements
+- Download history URLs open the original post in a new tab.
+- Strip `utm_*` tracking keys from newly entered URLs and old history without removing required video parameters.
+- Keep at most 30 completed/failed/cancelled jobs in history, while preserving active downloads, video files and the separate duplicate-detection index.
+- Do not label generic Reddit 403/JSON parsing failures as login-required. Explicit authentication errors still request the user's Reddit-only session.
+- The application still checks GitHub for releases on startup and offers a verified, user-confirmed in-app update.
+
 ## Core functions
 
-- Accept up to 10 links per batch, retain the last 50 job results (8 expanded in the main screen), and allow an individual job to be cancelled or all failed jobs to be retried.
+- Accept up to 10 links per batch, retain the last 30 completed/failed/cancelled job results (8 expanded in the main screen), and allow an individual job to be cancelled or all failed jobs to be retried.
 - Detect duplicate videos across equivalent Reddit/X/YouTube links and a durable local download index; confirm before downloading an additional copy without overwriting the original.
 - Handle Reddit connection drops with retries and an alternate network route. Users may explicitly provide **Reddit-only** cookies for videos that require access; ClipCatch does not extract Chrome, Edge or other browser login information.
 - Check for ClipCatch application updates and install them only after user confirmation, with file SHA-256 validation, health/version verification and automatic rollback on failure.
@@ -36,7 +43,7 @@ ClipCatch is a local Windows 64-bit web-interface downloader for approved public
 cd src
 go test ./...
 go vet ./...
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.6.0' -o ../ClipCatch.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.6.1' -o ../ClipCatch.exe .
 ```
 
-Publish by changing the root `VERSION` to `1.6.0` and committing all matching source code to `main`. GitHub Actions compiles a Windows binary, runs tests and publishes a new release with SHA-256 sums. Never commit login cookies or raw client logs.
+Publish by changing the root `VERSION` to `1.6.1` and committing all matching source code to `main`. GitHub Actions compiles a Windows binary, runs tests and publishes a new release with SHA-256 sums. Never commit login cookies or raw client logs.

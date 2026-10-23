@@ -259,6 +259,24 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mux.ServeHTTP(w, r)
 }
 
+// stripUTMQueryParams drops utm_* tracking keys without changing the encoding
+// or order of any non-tracking query parameter.
+func stripUTMQueryParams(u *url.URL) {
+	if u.RawQuery == "" {
+		return
+	}
+	kept := make([]string, 0)
+	for _, part := range strings.Split(u.RawQuery, "&") {
+		name := strings.SplitN(part, "=", 2)[0]
+		decoded, err := url.QueryUnescape(name)
+		if err == nil && strings.HasPrefix(strings.ToLower(decoded), "utm_") {
+			continue
+		}
+		kept = append(kept, part)
+	}
+	u.RawQuery = strings.Join(kept, "&")
+}
+
 func cleanURL(raw string) (string, string, error) {
 	raw = strings.TrimSpace(strings.TrimRight(raw, "),.;]"))
 	u, err := url.Parse(raw)
@@ -295,6 +313,7 @@ func cleanURL(raw string) (string, string, error) {
 			host = "www.reddit.com"
 		}
 	}
+	stripUTMQueryParams(u)
 	u.Fragment = ""
 	return u.String(), host, nil
 }
@@ -372,9 +391,7 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if len(a.state.Jobs) > 100 {
-		a.state.Jobs = a.state.Jobs[:100]
-	}
+	a.trimHistoryLocked() // Keep pending and running jobs; trim only finished history.
 	var added []string
 	for _, it := range inputs {
 		if a.hasQueuedDownloadLocked(it.key) {
@@ -594,6 +611,7 @@ func (a *App) runDownload(id string) {
 	}
 	redditNeedsRetry := err != nil && isRedditHost(j.Host) && shouldRetryReddit(msg)
 	initialAccessBlock := redditNeedsRetry && isRedditAccessBlock(msg)
+	initialExplicitLogin := needsAuth(msg)
 	if redditNeedsRetry {
 		networkDrop := isRedditConnectionDrop(msg)
 		a.mutateJob(id, func(j *Job) {
@@ -636,7 +654,8 @@ func (a *App) runDownload(id string) {
 				return
 			}
 			j.Status = "error"
-			j.AuthRequired = needsAuth(msg) || initialAccessBlock || isRedditAccessBlock(msg)
+			// Generic 403/JSON failures are not evidence that the user must log in.
+			j.AuthRequired = needsAuth(msg) || initialExplicitLogin
 			j.ErrorCode, j.ErrorTitle, j.ErrorAdvice = classifyDownloadError(msg, j.Host)
 			// Never persist raw stderr: sites may echo URLs or secret query tokens.
 			j.Detail = j.ErrorTitle
@@ -1108,13 +1127,16 @@ func (a *App) loadHistory() {
 	}
 	for _, j := range jobs {
 		if j != nil && (j.Status == "done" || j.Status == "error" || j.Status == "cancelled") {
+			if clean, _, err := cleanURL(j.URL); err == nil {
+				j.URL = clean
+			}
 			// Migrate auth errors from version 1.0 so the retry UI provides login guidance.
 			if j.Status == "error" && needsAuth(j.Detail) {
 				j.AuthRequired = true
 			}
 			a.state.Jobs = append(a.state.Jobs, j)
 		}
-		if len(a.state.Jobs) >= 50 {
+		if len(a.state.Jobs) >= historyLimit {
 			break
 		}
 	}
