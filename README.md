@@ -1,4 +1,36 @@
-# ClipCatch v1.7.0
+# ClipCatch v1.7.1
+
+ClipCatch is a single-file Windows 64-bit downloader for approved public video platforms.
+
+## v1.7.1: One ClipCatch installer, multi-platform Chrome helper
+
+**No extra extension ZIP is required.** Updating ClipCatch through its existing
+in-app updater also bundles the ClipCatch Browser v1.7.1 extension. The main
+Windows executable is still the only downloadable installer.
+
+- YouTube videos/Shorts, Instagram posts/Reels, X/Twitter posts, Reddit posts,
+  TikTok, Facebook, Vimeo, Twitch, Streamable and Imgur: open a supported public
+  video-post page, click the ClipCatch Browser icon, then **Current video download**.
+- For Reddit only, the optional playing-video fallback detects selected
+  `v.redd.it` streams when the post-link download fails.
+- The extension sends the chosen post URL through the locally paired browser
+  bridge. The same downloader queue, history, duplicate confirmation, and
+  downloaded-file folder remain in use. It never reads site cookies or passwords.
+- New users still need to **register the unpacked extension once** in
+  `chrome://extensions`. Chrome will not silently install an unpacked extension.
+- Existing extension users: after the app update/restart, open
+  `chrome://extensions` and click **Reload** on ClipCatch Browser. The app
+  refreshes the embedded extension files automatically when it detects a
+  previously installed extension folder.
+- Browser installation can be restricted by organization policy. Do not disable
+  security protections; consult IT for approved deployment.
+- Downloading login-restricted, private or DRM-protected media is not guaranteed
+  and access restrictions are not bypassed. Use permitted videos only.
+
+The original Reddit-only cookie registration, download logs, and app updater
+are unchanged.
+
+## Previous version: v1.7.0
 
 ClipCatch is a local Windows 64-bit web-interface downloader for approved public video platforms, including Reddit, YouTube and X. It uses the official yt-dlp project and FFmpeg and preserves the highest available source quality without re-encoding by default.
 
