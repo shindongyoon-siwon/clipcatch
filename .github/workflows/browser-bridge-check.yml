@@ -1,0 +1,27 @@
+name: Browser bridge checks
+on:
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  source-and-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reproducible source bundle
+        run: git archive --format=zip HEAD -o clipcatch-source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clipcatch-source
+          path: clipcatch-source.zip
+          retention-days: 1
+          if-no-files-found: error
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Test and race check
+        working-directory: src
+        run: |
+          go test -race ./...
+          go vet ./...
