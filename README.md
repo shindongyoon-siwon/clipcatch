@@ -1,6 +1,30 @@
-# ClipCatch v1.6.1
+# ClipCatch v1.7.0
 
 ClipCatch is a local Windows 64-bit web-interface downloader for approved public video platforms, including Reddit, YouTube and X. It uses the official yt-dlp project and FFmpeg and preserves the highest available source quality without re-encoding by default.
+
+## v1.7.0: Reddit browser handoff
+
+When Reddit post extraction fails, open the public post in Chrome and use the included **ClipCatch Browser** extension. This is a separate path: the extension sends observed HTTPS `v.redd.it` media URLs to the app; the app does not request Reddit post JSON for these jobs.
+
+### One-time setup
+1. Update ClipCatch using the existing in-app updater.
+2. Expand the browser handoff panel and click the extension-folder button. The bundled extension is written to `%LOCALAPPDATA%\ClipCatch\browser-extension`.
+3. In `chrome://extensions`, use Developer mode and **Load unpacked**, selecting that folder. Respect company extension policies; do not disable system security controls.
+4. Create a pairing code in ClipCatch and paste the entire code in the extension popup. The code is single-use and expires in five minutes.
+
+### Daily use
+Open the exact Reddit post, play its video, click **Find current post video**, and explicitly send the matching candidate to ClipCatch. If nothing is detected, refresh the post and play it with capture armed, then scan again. Completion is shown in ClipCatch, not inferred from the extension's handoff acknowledgement.
+
+The extension prefers a media manifest actually observed on the current post. It may combine separately observed video/audio URLs only from the same media ID. It never invents a media URL. If only video is available, silent saving requires explicit consent. The app verifies both video and audio with FFprobe before reporting normal completion. A truly silent original is supported with the silent-saving checkbox.
+
+### Permissions and limitations
+- No cookies, passwords, browser-history databases, remote servers, or cloud account connections are used by the extension.
+- Capture is limited by code to one explicitly armed Reddit tab for ten minutes; only CDN URLs are observed, not request headers. Candidate data stays in browser session memory. The link key stays in local extension storage and can be revoked in ClipCatch.
+- Only a pairing-key digest is persisted by the app. Signed media URLs are not written to history or diagnostic reports. Temporary paired-stream request files are removed after use.
+- The first version supports public Reddit-hosted MPD/HLS/MP4 streams, not every external video embed. DRM, CAPTCHA, paywalls and access-control bypass are not implemented.
+- A playable page does not guarantee that its CDN permits direct downloads. The user's exact Reddit clip and their Windows browser environment require a live acceptance check; synthetic test success must not be presented as live Reddit success.
+- Existing 30-result history, duplicate prevention, downloaded files, and Reddit-only saved authentication are preserved.
+- This unpacked extension is not published to the Chrome Web Store. After a later app update changes the extension, prepare the folder again and reload its card in Chrome.
 
 ## v1.6.1 improvements
 - Download history URLs open the original post in a new tab.
@@ -43,7 +67,7 @@ ClipCatch is a local Windows 64-bit web-interface downloader for approved public
 cd src
 go test ./...
 go vet ./...
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.6.1' -o ../ClipCatch.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.7.0' -o ../ClipCatch.exe .
 ```
 
-Publish by changing the root `VERSION` to `1.6.1` and committing all matching source code to `main`. GitHub Actions compiles a Windows binary, runs tests and publishes a new release with SHA-256 sums. Never commit login cookies or raw client logs.
+Publish by changing the root `VERSION` to `1.7.0` and committing all matching source code to `main`. GitHub Actions compiles a Windows binary, runs tests and publishes a new release with SHA-256 sums. Never commit login cookies or raw client logs.

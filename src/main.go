@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.6.0"
+	appDefaultVersion = "1.7.0"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -35,7 +35,7 @@ const (
 
 var appVersion = appDefaultVersion
 
-//go:embed web/index.html web/favicon.svg
+//go:embed web/* browser_extension/*
 var pages embed.FS
 
 var (
@@ -45,22 +45,23 @@ var (
 )
 
 type Job struct {
-	ID           string  `json:"id"`
-	URL          string  `json:"url"`
-	Host         string  `json:"host"`
-	Title        string  `json:"title"`
-	Status       string  `json:"status"`
-	Percent      float64 `json:"percent"`
-	Speed        string  `json:"speed"`
-	ETA          string  `json:"eta"`
-	File         string  `json:"file"`
-	Detail       string  `json:"detail"`
-	Time         string  `json:"time"`
-	AuthRequired bool    `json:"auth_required,omitempty"`
-	Redownload   bool    `json:"redownload,omitempty"`
-	ErrorCode    string  `json:"error_code,omitempty"`
-	ErrorTitle   string  `json:"error_title,omitempty"`
-	ErrorAdvice  string  `json:"error_advice,omitempty"`
+	BrowserSource bool    `json:"browser_source,omitempty"`
+	ID            string  `json:"id"`
+	URL           string  `json:"url"`
+	Host          string  `json:"host"`
+	Title         string  `json:"title"`
+	Status        string  `json:"status"`
+	Percent       float64 `json:"percent"`
+	Speed         string  `json:"speed"`
+	ETA           string  `json:"eta"`
+	File          string  `json:"file"`
+	Detail        string  `json:"detail"`
+	Time          string  `json:"time"`
+	AuthRequired  bool    `json:"auth_required,omitempty"`
+	Redownload    bool    `json:"redownload,omitempty"`
+	ErrorCode     string  `json:"error_code,omitempty"`
+	ErrorTitle    string  `json:"error_title,omitempty"`
+	ErrorAdvice   string  `json:"error_advice,omitempty"`
 }
 
 type ClientState struct {
@@ -79,6 +80,7 @@ type ClientState struct {
 }
 
 type App struct {
+	browser       browserBridgeState
 	mu            sync.Mutex
 	persistMu     sync.Mutex
 	state         ClientState
@@ -117,6 +119,7 @@ func newApp(dataDir, saveDir string) *App {
 		Jobs:      make([]*Job, 0),
 		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
+	a.initBrowserBridge()
 	a.loadEngineMetadata()
 	a.state.Diagnostics = DiagnosticState{Status: "idle", Summary: "문제 해결에서 상태를 확인할 수 있어"}
 	a.loadHistory()
@@ -219,6 +222,16 @@ func (a *App) routes() {
 			}
 		}()
 	})
+	a.browserRoutes(mux)
+	mux.HandleFunc("GET /browser-link.js", func(w http.ResponseWriter, r *http.Request) {
+		b, err := pages.ReadFile("web/browser-link.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(b)
+	})
 	a.mux = mux
 }
 
@@ -243,6 +256,9 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	host := r.Host
 	if !strings.HasPrefix(host, "127.0.0.1:") && !strings.HasPrefix(host, "localhost:") {
 		http.Error(w, "Local access only", http.StatusForbidden)
+		return
+	}
+	if a.serveBrowserBridge(w, r) {
 		return
 	}
 	if r.Method == http.MethodPost {
@@ -605,6 +621,10 @@ func (a *App) runDownload(id string) {
 		a.mu.Unlock()
 	}()
 
+	if j.BrowserSource {
+		a.runBrowserJob(id, j)
+		return
+	}
 	err, msg := a.runDownloadAttempt(id, j, false)
 	if ctx.Err() != nil || a.isJobCancelled(id) {
 		return
@@ -684,6 +704,15 @@ func (a *App) runDownloadAttemptIPv4(id string, j *Job) (error, string) {
 
 func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv4 bool, cookieFile ...string) (error, string) {
 	args := a.downloadArgsForAttempt(j, impersonate, forceIPv4)
+	if j.BrowserSource {
+		var cleanup func()
+		var err error
+		args, cleanup, err = a.browserDownloadArgs(j, args)
+		if err != nil {
+			return err, err.Error()
+		}
+		defer cleanup()
+	}
 	if len(cookieFile) > 0 && isRedditHost(j.Host) {
 		var err error
 		args, err = addCookieArg(args, cookieFile[0])

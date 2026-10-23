@@ -214,7 +214,7 @@ func buildDiagnosticReport(st ClientState) string {
 }
 func safeErrorCode(code string) string {
 	switch code {
-	case "CC-101", "CC-102", "CC-103", "CC-104", "CC-105", "CC-106", "CC-107", "CC-108", "CC-109", "CC-199", "CC-201":
+	case "CC-101", "CC-102", "CC-103", "CC-104", "CC-105", "CC-106", "CC-107", "CC-108", "CC-109", "CC-199", "CC-201", "CC-312", "CC-313", "CC-314", "CC-315":
 		return code
 	}
 	return "CC-199"

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "ClipCatch Browser",
+  "version": "1.7.0",
+  "description": "Send an explicitly selected Reddit video to the ClipCatch app on this PC. No cookies or passwords are read.",
+  "minimum_chrome_version": "120",
+  "permissions": ["activeTab", "scripting", "storage", "webRequest"],
+  "host_permissions": ["https://www.reddit.com/*", "https://old.reddit.com/*", "https://reddit.com/*", "https://v.redd.it/*", "http://127.0.0.1/*", "http://localhost/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_popup": "popup.html", "default_title": "ClipCatch Browser"},
+  "content_security_policy": {"extension_pages": "script-src 'self'; object-src 'none'"}
+}
