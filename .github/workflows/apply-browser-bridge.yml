@@ -8,7 +8,7 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: apply-browser-bridge
+  group: apply-browser-bridge-bounded
   cancel-in-progress: true
 jobs:
   verify-and-apply:
