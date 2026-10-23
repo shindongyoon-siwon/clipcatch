@@ -1,29 +1,13 @@
-<!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ClipCatch Browser</title><link rel="stylesheet" href="popup.css"></head>
-<body>
-<header><b>ClipCatch <span>Browser</span></b><small>v1.7.1</small></header>
-<details id="connection" class="connection"><summary id="connectionTitle">처음 한 번 · ClipCatch 연결</summary>
-  <p>PC에서 ClipCatch를 켠 뒤 <b>[브라우저 확장프로그램] → [연결 코드 만들기] → [연결 코드 복사]</b>를 누르고 아래에 붙여넣어 줘.</p>
-  <textarea id="pairCode" rows="2" spellcheck="false" placeholder="http://127.0.0.1:8765#..."></textarea>
-  <button id="pair">ClipCatch 연결하기</button>
-</details>
-<section class="page">
- <small class="eyebrow">지금 열어둔 영상</small>
- <div id="platform" class="platform">사이트 확인 중…</div>
- <div id="pageTitle" class="pageTitle"></div>
- <div id="pageURL" class="pageURL"></div>
- <button id="send" class="primary" disabled>현재 영상 다운로드</button>
- <p id="pageHint" class="hint">영상이 있는 게시물 하나를 열어 줘. 검색 결과나 사이트 첫 화면은 안 돼.</p>
-</section>
-<details id="redditTools" class="redditTools" hidden>
-  <summary>Reddit 링크가 실패하면 · 재생 영상 찾기</summary>
-  <p>Reddit 게시물에서 영상을 재생한 뒤 아래 버튼을 누르면 영상 파일 주소를 찾아줘.</p>
-  <button id="scan">재생 영상 찾기</button>
-  <p id="scanHint" class="hint"></p>
-  <label><input type="checkbox" id="silent"><span>원래 소리가 없는 영상만 · 무음 저장 허용</span></label>
-  <div id="candidates"></div>
-</details>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ClipCatch Browser</title><link rel="stylesheet" href="popup.css"></head><body>
+<header><b>ClipCatch <span>Browser</span></b><small>v1.7.2</small></header>
+<details id="connection"><summary id="connectionTitle">ClipCatch 연결</summary><p>ClipCatch에서 [연결 코드 만들기] → [연결 코드 복사]를 누르고 아래에 붙여넣어 줘.</p><textarea id="pairCode" rows="2" aria-label="연결 코드" spellcheck="false"></textarea><button id="pair">연결하기</button></details>
+<div class="collection-head"><div><small>이 페이지에서 찾은</small><h2 id="count">영상 확인 중</h2></div><button id="refresh">다시 찾기</button></div>
+<div class="select-tools"><label><input type="checkbox" id="selectAll">전체 선택</label><span id="selectionCount">0개 선택</span></div>
+<div id="list" aria-label="다운로드할 영상 목록"></div>
+<p id="empty" hidden>아직 영상을 찾지 못했어. 영상을 재생하거나 아래로 내린 후 [다시 찾기]를 눌러 줘.</p>
+<label id="silentRow" hidden><input type="checkbox" id="silent">원래 소리가 없는 영상만 무음 저장</label>
+<button id="send" class="primary" disabled>영상을 선택해 줘</button><button id="retryDuplicates" hidden>이미 받은 영상도 사본으로 다시 받기</button>
 <p id="status" role="status" aria-live="polite"></p>
-<footer>직접 누른 게시물만 전송 · 비밀번호/쿠키를 읽지 않음<br>다운로드 완료는 ClipCatch에서 확인해 줘.</footer>
-<script type="module" src="popup.js"></script>
-</body></html>
+<details id="redditTools" hidden><summary>Reddit 개별 게시물의 재생 영상 찾기</summary><button id="scan">재생 영상 찾기</button><div id="candidates"></div></details>
+<footer>이 탭에 불러온 영상만 표시 · 한 번에 최대 10개<br>저장 완료는 ClipCatch에서 확인</footer>
+<script type="module" src="popup.js"></script></body></html>

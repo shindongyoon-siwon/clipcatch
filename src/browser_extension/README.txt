@@ -1,33 +1,31 @@
-ClipCatch Browser v1.7.1 (included in ClipCatch.exe)
+ClipCatch Browser v1.7.2 - bundled feed/video picker
 
-One-time Chrome/Edge setup:
-1. In the ClipCatch app, open [browser download] and click [extension folder].
-2. In Chrome open chrome://extensions (Edge: edge://extensions).
-3. If permitted by company policy, enable Developer mode and click Load unpacked.
-4. Select the folder opened in step 1 (normally %LOCALAPPDATA%\ClipCatch\browser-extension).
-5. Create a one-use pairing code in ClipCatch and paste the whole code in the extension popup.
+Use:
+1. Open a supported video page or a loaded Reddit/YouTube/X/Instagram feed.
+2. Click ClipCatch Browser. It reads video cards already loaded in this tab.
+3. Tick one or more videos, or Select All (maximum 10 per send).
+4. Click Download selected. The popup reports queue acceptance, not completion.
+5. Check actual download completion in ClipCatch.
 
-Daily use:
-- Open one public YouTube video/Shorts, Instagram post/Reel, X/Twitter post,
-  Reddit post, TikTok video, Facebook video, Vimeo, Twitch video or Streamable link.
-- Open the ClipCatch Browser toolbar icon and click [current video download].
-- Check ClipCatch for queue, failures, and completed downloads.
-- If a Reddit post fails, play its video and use [find playing video],
-  then select the matching media. Only this optional Reddit path observes
-  v.redd.it CDN URLs on the actively armed tab for 10 minutes.
+If nothing is found, play the desired video or scroll to load it, then click Refresh.
+No automatic feed scrolling or downloads are performed. Unsupported page layouts
+may still require opening the individual post.
 
-Existing users upgrading from ClipCatch v1.7.0:
-- Update ClipCatch from the app. Its embedded extension files are refreshed
-  in the existing browser-extension folder at next startup.
-- Open chrome://extensions and click Reload on the existing ClipCatch Browser.
-  The same extension folder normally retains its pairing.
-- No separate extension ZIP is needed. This unpacked extension is not
-  automatically registered or force-reloaded by Windows/Chrome.
+Multiple videos:
+- Separate post cards are separate choices.
+- Reddit media IDs actually observed inside one post are separate choices.
+- Multiple resolutions of the same Reddit media ID are not duplicate videos.
+- X numbered video links are separate only when those links are actually present.
+- Instagram and other posts without individually identifiable URLs remain
+  post-level choices; hidden carousel entries are not claimed as discovered.
+- Audio is paired only from the same Reddit media ID. Video-only candidates need
+  explicit silent-original consent; no audio URLs or streams are invented.
 
-Privacy and limitations:
-- Only the explicitly selected video post URL is sent to localhost.
-- No browser cookies, passwords, request headers, or history are accessed.
-- Public posts can still fail due to site extractors, age/login restrictions,
-  blocked CDN/DRM/paywalls, or network rules. No bypass is attempted.
-- Never disable company browser or Windows security policies.
-- Use only media for which saving and reuse are permitted.
+Update from v1.7.1:
+Update the ClipCatch application, then reload the existing ClipCatch Browser card
+in chrome://extensions (Edge: edge://extensions). The installed folder path and
+pairing are retained. No separate extension ZIP is required.
+
+No cookies, passwords or browser history are read. Signed media URLs stay only in
+session memory and temporary job files. Use only permitted media. Authentication,
+DRM, deleted videos or network restrictions may still cause download failures.
