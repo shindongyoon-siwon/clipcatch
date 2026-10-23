@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.7.0"
+	appDefaultVersion = "1.7.1"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -120,6 +120,13 @@ func newApp(dataDir, saveDir string) *App {
 		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
 	a.initBrowserBridge()
+	// Existing unpacked extension: refresh bundled files in place after an app update.
+	// Chrome/Edge still requires an explicit Reload or restart to activate new JS.
+	if _, err := os.Stat(filepath.Join(a.dataDir, "browser-extension", "manifest.json")); err == nil {
+		if _, err := a.installBrowserExtension(); err != nil {
+			log.Println("Could not refresh existing ClipCatch extension:", err)
+		}
+	}
 	a.loadEngineMetadata()
 	a.state.Diagnostics = DiagnosticState{Status: "idle", Summary: "문제 해결에서 상태를 확인할 수 있어"}
 	a.loadHistory()

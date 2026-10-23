@@ -84,5 +84,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.7.0' -o "$env:RUNNER_TEMP/ClipCatch.exe" .
+          go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.7.1' -o "$env:RUNNER_TEMP/ClipCatch.exe" .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

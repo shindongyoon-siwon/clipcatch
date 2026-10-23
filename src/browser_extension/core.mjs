@@ -42,3 +42,47 @@ export function pairingCode(raw) {
   if(!u.port||Number(u.port)<1024||Number(u.port)>65535)throw Error('Invalid ClipCatch port');
   return {base:u.origin,code:u.hash.slice(1)};
 }
+
+// A browser tab can offer one explicitly selected public video-post URL.
+// The downloader (not the extension) fetches the media. No cookie or request
+// interception occurs outside the optional Reddit-only fallback.
+function domainIs(host, root) { return host === root || host.endsWith("." + root); }
+export function videoPage(raw) {
+  try {
+    if (typeof raw !== "string" || raw.length > 4096) return null;
+    const u=new URL(raw);
+    if(u.protocol!=="https:" || u.username || u.password || u.port || u.pathname.length>1500)return null;
+    u.hash="";
+    for(const k of [...u.searchParams.keys()]) {
+      if (/^utm_/i.test(k) || /^(fbclid|gclid|igshid|si|feature|app|ref_src|ref_url)$/i.test(k))u.searchParams.delete(k);
+    }
+    const host=u.hostname.toLowerCase(),path=u.pathname;
+    let platform="",type="page";
+    if(["reddit.com","www.reddit.com","old.reddit.com","new.reddit.com"].includes(host)) {
+      if (/^\/(?:(?:r|user)\/[^/]+\/)?comments\/[a-z0-9]{5,12}(?:\/|$)/i.test(path)) {platform="Reddit";type="reddit";}
+    } else if (host==="redd.it"||host==="www.redd.it") {
+      if(/^\/[a-z0-9]{5,12}\/?$/i.test(path)){platform="Reddit";type="reddit";}
+    } else if (domainIs(host,"youtube.com")) {
+      if((path==="/watch"&&/^[A-Za-z0-9_-]{11}$/.test(u.searchParams.get("v")||""))||/^\/(?:shorts|live)\/[A-Za-z0-9_-]{11}(?:\/|$)/.test(path))platform="YouTube";
+    } else if (host==="youtu.be"||host==="www.youtu.be") {
+      if(/^\/[A-Za-z0-9_-]{11}\/?$/.test(path))platform="YouTube";
+    } else if (domainIs(host,"x.com")||domainIs(host,"twitter.com")) {
+      if(/^\/(?:[^/]+\/status|i\/status)\/\d+(?:\/|$)/i.test(path))platform="X (트위터)";
+    } else if (domainIs(host,"instagram.com")) {
+      if(/^\/(?:p|reel|tv)\/[A-Za-z0-9_-]+(?:\/|$)/i.test(path))platform="Instagram";
+    } else if (domainIs(host,"tiktok.com")) {
+      if(/^\/@[^/]+\/video\/\d+(?:\/|$)/i.test(path)||/^\/t\/\w+\/?$/.test(path))platform="TikTok";
+    } else if (domainIs(host,"facebook.com")||host==="fb.watch") {
+      if((host==="fb.watch"&&/^\/[A-Za-z0-9_-]+\/?$/.test(path))||/^\/(?:reel|watch|videos|video\.php)(?:\/|$)/i.test(path)||/\/videos\/\d+/.test(path))platform="Facebook";
+    } else if (domainIs(host,"vimeo.com")) {
+      if(/^\/\d+(?:\/|$)/.test(path)||/^\/channels\/[^/]+\/\d+/.test(path))platform="Vimeo";
+    } else if(domainIs(host,"streamable.com")) {
+      if(/^\/[A-Za-z0-9]+\/?$/.test(path))platform="Streamable";
+    } else if(domainIs(host,"twitch.tv")) {
+      if(/^\/videos\/\d+(?:\/|$)/i.test(path)||/^\/[^/]+\/clip\/[^/]+/.test(path)||(host==="clips.twitch.tv"&&/^\/[^/]+/.test(path)))platform="Twitch";
+    } else if(domainIs(host,"imgur.com")) {
+      if(/^\/(?:gallery|a)\/[A-Za-z0-9]+(?:\/|$)/.test(path)||/^\/[A-Za-z0-9]+\/?$/.test(path))platform="Imgur";
+    }
+    return platform?{url:u.href,platform,type}:null;
+  }catch(_){return null;}
+}

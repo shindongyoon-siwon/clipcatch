@@ -1,7 +1,11 @@
-import {redditPost,mediaParts,groupMedia,pairingCode} from './core.mjs';
+import {videoPage,redditPost,mediaParts,groupMedia,pairingCode} from './core.mjs';
 const TTL=10*60*1000;
 let serial=Promise.resolve();
 const serialTask=fn=>{const next=serial.then(fn,fn);serial=next.catch(()=>{});return next;};
+async function currentPage() {
+  const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
+  return {tab,page:videoPage(tab?.url)};
+}
 async function activePost() {
   const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
   const post=redditPost(tab?.url);if(!tab||!post)throw Error('\uc800\uc7a5\ud560 Reddit \uc6d0\ubcf8 \uac8c\uc2dc\ubb3c \ud0ed\uc744 \uba3c\uc800 \uc5f4\uc5b4 \uc918.');
@@ -18,7 +22,7 @@ async function localRequest(link,path,body,authorized=true) {
   try {
     const response=await fetch(link.base+path,{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json',...(authorized?{Authorization:'Bearer '+link.token}:{})},body:JSON.stringify(body),signal:controller.signal});
     let result;try{result=await response.json();}catch(_){throw Error('ClipCatch 1.7.0 \uc774\uc0c1\uc73c\ub85c \uc5c5\ub370\uc774\ud2b8\ud574 \uc918.');}
-    if(!response.ok){const e=Error(result.error||'ClipCatch request failed');e.duplicate=!!result.duplicate;throw e;}return result;
+    if(!response.ok){const e=Error(result.error||'ClipCatch request failed');e.duplicate=!!result.duplicate || (Array.isArray(result.duplicates)&&result.duplicates.length>0);throw e;}return result;
   }catch(e){if(e.name==='AbortError'||e instanceof TypeError)throw Error('ClipCatch\ub97c \uc2e4\ud589\ud574 \uc918. \uacc4\uc18d \uc5f0\uacb0\uc774 \uc548 \ub418\uba74 \uc0c8 \uc5f0\uacb0 \ucf54\ub4dc\ub85c \ub2e4\uc2dc \uc5f0\uacb0\ud574 \uc918.');throw e;}finally{clearTimeout(timer);}
 }
 async function handle(message) {
@@ -32,11 +36,24 @@ async function handle(message) {
   if(message.kind==='status'||message.kind==='scan') {
     const {link}=await chrome.storage.local.get('link');
     let {capture}=await chrome.storage.session.get('capture');
-    let page=null,tab=null;
-    try{({tab,post:page}=await activePost());}catch(e){if(message.kind==='scan')throw e;}
-    if(capture && (Date.now()-capture.started>TTL || capture.tabId!==tab?.id||capture.postId!==page?.id)){capture=null;await chrome.storage.session.remove('capture');}
-    if(message.kind==='scan')capture=await scan(tab,page,capture||{});
-    return {paired:!!link,version:link?.version,page_url:page?.url||'',title:capture?.title||'',capturing:!!capture,groups:capture?groupMedia(capture.dom,capture.network,capture.matched):[]};
+    const {tab,page}=await currentPage();
+    const post=redditPost(tab?.url);
+    if(capture && (Date.now()-capture.started>TTL || capture.tabId!==tab?.id || capture.postId!==post?.id)){
+      capture=null;await chrome.storage.session.remove('capture');
+    }
+    if(message.kind==='scan'){
+      if(!tab||!post)throw Error('먼저 Reddit 원본 게시물을 열어 줘.');
+      capture=await scan(tab,post,capture||{});
+    }
+    return {paired:!!link,version:link?.version,page_url:page?.url||'',platform:page?.platform||'',page_type:post?'reddit':'page',title:capture?.title||tab?.title||'',capturing:!!capture,groups:capture?groupMedia(capture.dom,capture.network,capture.matched):[]};
+  }
+  if(message.kind==='send-page'){
+    const {link}=await chrome.storage.local.get('link');
+    if(!link)throw Error('ClipCatch와 먼저 연결해 줘.');
+    const {page}=await currentPage();
+    if(!page)throw Error('영상이 있는 게시물 한 개를 열어 줘. 사이트 홈이나 검색 화면은 안 돼.');
+    const result=await localRequest(link,'/bridge/page',{page_url:page.url,allow_duplicates:!!message.duplicates});
+    return {...result,platform:page.platform};
   }
   if(message.kind==='download') {
     const {link}=await chrome.storage.local.get('link');if(!link)throw Error('ClipCatch\uc640 \uba3c\uc800 \uc5f0\uacb0\ud574 \uc918.');
