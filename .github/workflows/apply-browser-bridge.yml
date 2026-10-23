@@ -31,6 +31,24 @@ jobs:
           PY
           git apply --check /tmp/browser.patch
           git apply /tmp/browser.patch
+      - name: CSP-compatible integration assertions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('tests/browser_e2e.py');s=p.read_text()
+          s=s.replace('from playwright.sync_api import sync_playwright','from playwright.sync_api import sync_playwright, expect\nimport re')
+          lines=[]
+          for line in s.splitlines():
+              if 'app.wait_for_function' in line and 'browserPairCode' in line:
+                  line='            expect(app.locator("#browserPairCode")).to_have_value(re.compile("#"))'
+              elif 'popup.wait_for_function' in line and 'connectionTitle' in line:
+                  line='            expect(popup.locator("#connectionTitle")).to_contain_text("\\uC5F0\\uACB0\\uB428")'
+              elif 'app.wait_for_function' in line and '.job.done' in line:
+                  line='            app.locator(".job.done").wait_for(state="attached",timeout=15000)'
+              lines.append(line)
+          p.write_text('\n'.join(lines)+'\n')
+          assert 'wait_for_function' not in p.read_text()
+          PY
       - uses: actions/setup-go@v5
         with:
           go-version-file: src/go.mod
@@ -49,7 +67,7 @@ jobs:
           node --test tests/browser-core.test.mjs
       - name: Python test packages
         timeout-minutes: 3
-        run: python -m pip install --disable-pip-version-check --timeout 30 --retries 2 yt-dlp playwright
+        run: python -m pip install --disable-pip-version-check --timeout 30 --retries 2 yt-dlp==2026.10.21 playwright==1.64.1
       - name: Test Chromium
         timeout-minutes: 4
         run: python -m playwright install chromium
