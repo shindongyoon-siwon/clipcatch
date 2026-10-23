@@ -1,0 +1,39 @@
+name: Apply reviewed Premiere integration
+on:
+  push:
+    branches: [feature/premiere-mp4-v1.8.0]
+    paths: ['.development/apply_premiere_integration.py', '.github/workflows/apply-premiere-integration.yml']
+permissions:
+  contents: write
+concurrency:
+  group: apply-premiere-integration
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.repository == 'shindongyoon-siwon/clipcatch' && github.ref == 'refs/heads/feature/premiere-mp4-v1.8.0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.mod
+      - name: Apply exact source integration
+        run: python3 .development/apply_premiere_integration.py
+      - name: Verify implementation before committing
+        working-directory: src
+        run: |
+          go test ./...
+          go vet ./...
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.8.0' -o "$RUNNER_TEMP/ClipCatch.exe" .
+      - name: Commit only to the feature branch and remove this one-time helper
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/feature/premiere-mp4-v1.8.0 | cut -f1)" = "$GITHUB_SHA"
+          git rm .development/apply_premiere_integration.py .github/workflows/apply-premiere-integration.yml
+          git add VERSION src/main.go src/edit_media.go src/premiere.go src/edit_media_test.go src/premiere_test.go src/browser_bridge.go src/browser_download.go src/browser_feed.go src/queue_controls.go src/browser_version.go .github/workflows/browser-bridge-check.yml
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Integrate reviewed Premiere download and local conversion; remove one-time helper'
+          git push origin HEAD:refs/heads/feature/premiere-mp4-v1.8.0
