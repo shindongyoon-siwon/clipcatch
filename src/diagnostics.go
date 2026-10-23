@@ -34,6 +34,8 @@ func classifyDownloadError(raw, host string) (string, string, string) {
 			return "CC-103", "레딧 로그인 확인이 필요해", "레딧 전용 인증을 연결한 뒤 해당 영상만 다시 시도해 줘."
 		}
 		return "CC-103", "로그인이 필요한 영상이야", "원본 사이트에서 공개 영상인지 먼저 확인해 줘."
+	case isRedditHost(host) && strings.Contains(s, "failed to parse json"):
+		return "CC-106", "레딧 영상 정보를 해석하지 못했어", "사이트 응답이나 다운로드 방식이 변경되었을 수 있어. 엔진 업데이트를 확인해 줘. 로그인 필요 여부는 이 오류만으로 알 수 없어."
 	case isRedditConnectionDrop(raw) || strings.Contains(s, "connection refused") || strings.Contains(s, "network is unreachable") || strings.Contains(s, "timed out") || strings.Contains(s, "name resolution"):
 		return "CC-101", "영상 서버 연결이 끊겼어", "원본 게시물이 브라우저에서 재생되는지 확인하고 다시 시도해 줘. 계속되면 네트워크 상태를 진단해 줘."
 	case strings.Contains(s, "403") || strings.Contains(s, "forbidden"):
