@@ -126,6 +126,21 @@
         <div class="info-line"><p>공개된 영상 링크를 넣어주세요. 플랫폼 정책상 일부 영상은 제한될 수 있어요.</p><span class="input-count" id="urlCount">0 / 10</span></div>
         <div class="safe-note">회사 PC 보호 · Chrome 전체 로그인 정보 접근 없음 · 업데이트는 확인 후 설치</div>
 
+<details id="browserLinkPanel" class="reddit-auth">
+<summary>Reddit 저장이 안 될 때 · 브라우저에서 가져오기</summary>
+<p>원본 게시물을 Chrome에서 재생한 다음 <b>ClipCatch Browser</b> 확장에서 보내면 돼. 쿠키·비밀번호는 읽지 않아.</p>
+<p>처음 한 번: 설치 폴더 열기 → <b>chrome://extensions</b> 에서 개발자 모드 → [압축해제된 확장 프로그램을 로드합니다] → 아래 폴더 선택. 회사 정책으로 설치가 제한되면 관리자에게 요청해 줘.</p>
+<div class="reddit-auth-controls">
+<button type="button" id="installBrowserExtension">확장 설치 폴더 열기</button>
+<button type="button" id="makeBrowserCode">연결 코드 만들기</button>
+<button type="button" id="revokeBrowserLink" class="plain-btn">연결 해제</button></div>
+<p id="browserExtensionPath" style="overflow-wrap:anywhere"></p>
+<div id="browserCodeBox" hidden><p>아래 코드를 복사해 확장의 [ClipCatch 연결]에 붙여넣어 줘. 5분 동안 한 번만 쓸 수 있어.</p>
+<input id="browserPairCode" readonly aria-label="ClipCatch pairing code" style="width:100%;padding:10px"/>
+<button type="button" id="copyBrowserCode">연결 코드 복사</button></div>
+<div id="browserLinkStatus" class="reddit-auth-status" role="status"></div>
+<p>재생 주소를 전달하는 보조 기능이야. 영상 서버의 접근 제한·DRM을 해제하지 않아.</p>
+</details>
         <details id="redditAuthDetails" class="reddit-auth">
           <summary>레딧에서 로그인 요구할 때만 · 레딧 인증 연결</summary>
           <p>공개 영상은 연결 없이 받아져. 로그인 요구 영상만 레딧 사이트의 <b>cookies.txt</b> 파일을 선택해 줘.<br>Chrome 전체 로그인 정보는 읽지 않고, 레딧 쿠키만 골라 사용해.</p>
@@ -579,5 +594,6 @@
     poll();setInterval(poll,1000);
     $('urlInput').focus();
   </script>
+<script src="/browser-link.js"></script>
 </body>
 </html>

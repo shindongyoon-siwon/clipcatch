@@ -35,6 +35,15 @@ func (a *App) trimHistoryLocked() {
 		kept = append(kept, job)
 	}
 	a.state.Jobs = kept
+	retained := make(map[string]bool, len(kept))
+	for _, j := range kept {
+		retained[j.ID] = true
+	}
+	for id := range a.browser.Sources {
+		if !retained[id] {
+			delete(a.browser.Sources, id)
+		}
+	}
 }
 
 type downloadRecord struct {
