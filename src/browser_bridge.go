@@ -87,7 +87,7 @@ func decodeBrowserJSON(w http.ResponseWriter, r *http.Request, v any) error {
 // The caller has already validated the loopback Host. Only these two extension
 // routes receive CORS permission, and all writes require a one-use code or key.
 func (a *App) serveBrowserBridge(w http.ResponseWriter, r *http.Request) bool {
-	if r.URL.Path != "/bridge/pair" && r.URL.Path != "/bridge/download" {
+	if r.URL.Path != "/bridge/pair" && r.URL.Path != "/bridge/download" && r.URL.Path != "/bridge/page" {
 		return false
 	}
 	origin := r.Header.Get("Origin")
@@ -128,7 +128,11 @@ func (a *App) serveBrowserBridge(w http.ResponseWriter, r *http.Request) bool {
 		writeError(w, 401, "ClipCatch\uc5d0\uc11c \uc0c8 \uc5f0\uacb0 \ucf54\ub4dc\ub97c \ub9cc\ub4e4\uc5b4 \ub2e4\uc2dc \uc5f0\uacb0\ud574 \uc918.")
 		return true
 	}
-	a.queueBrowserMedia(w, r)
+	if r.URL.Path == "/bridge/page" {
+		a.queueBrowserPage(w, r)
+	} else {
+		a.queueBrowserMedia(w, r)
+	}
 	return true
 }
 func (a *App) pairBrowser(w http.ResponseWriter, r *http.Request, origin string) {
@@ -274,6 +278,36 @@ func validateBrowserMedia(in browserMedia) (browserMedia, error) {
 	}
 	return in, nil
 }
+
+// Browsers send a public POST URL through the same local authenticated bridge
+// used by the Reddit media helper. The existing download handler continues
+// to own duplicate detection, queued jobs, rate limits and download history.
+func (a *App) queueBrowserPage(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		PageURL         string `json:"page_url"`
+		AllowDuplicates bool   `json:"allow_duplicates"`
+	}
+	if err := decodeBrowserJSON(w, r, &in); err != nil {
+		writeError(w, 400, "영상 링크를 확인하지 못했어.")
+		return
+	}
+	clean, _, err := cleanURL(in.PageURL)
+	if err != nil || !strings.HasPrefix(clean, "https://") {
+		writeError(w, 400, "지원하는 공개 영상 게시물 주소만 사용할 수 있어.")
+		return
+	}
+	payload, err := json.Marshal(map[string]any{
+		"urls": clean, "allow_duplicates": in.AllowDuplicates,
+	})
+	if err != nil {
+		writeError(w, 500, "요청을 준비하지 못했어.")
+		return
+	}
+	local := r.Clone(r.Context())
+	local.Body = io.NopCloser(strings.NewReader(string(payload)))
+	a.downloadHandler(w, local)
+}
+
 func (a *App) queueBrowserMedia(w http.ResponseWriter, r *http.Request) {
 	var in browserMedia
 	if decodeBrowserJSON(w, r, &in) != nil {
