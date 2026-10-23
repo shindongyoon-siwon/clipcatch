@@ -4,24 +4,85 @@ on:
     branches: [main]
 permissions:
   contents: read
+concurrency:
+  group: browser-bridge-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  source-and-tests:
+  browser-and-engine:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Reproducible source bundle
-        run: git archive --format=zip HEAD -o clipcatch-source.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: clipcatch-source
-          path: clipcatch-source.zip
-          retention-days: 1
-          if-no-files-found: error
       - uses: actions/setup-go@v5
         with:
           go-version-file: src/go.mod
-      - name: Test and race check
-        working-directory: src
+          cache-dependency-path: src/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit and race checks
         run: |
+          cd src
           go test -race ./...
           go vet ./...
+          cd ..
+          node --test tests/browser-core.test.mjs
+      - name: Browser test packages
+        timeout-minutes: 3
+        run: python -m pip install --disable-pip-version-check --timeout 30 --retries 2 yt-dlp==2026.10.21 playwright==1.64.1
+      - name: Chromium
+        timeout-minutes: 4
+        run: python -m playwright install chromium
+      - name: FFmpeg and Korean UI test font
+        timeout-minutes: 4
+        run: |
+          sudo python3 - <<'PYM'
+          from pathlib import Path
+          files=[Path('/etc/apt/apt-mirrors.txt'),Path('/etc/apt/sources.list')]
+          files+=list(Path('/etc/apt/sources.list.d').glob('*.sources'))
+          files+=list(Path('/etc/apt/sources.list.d').glob('*.list'))
+          for p in files:
+              if p.exists():
+                  s=p.read_text()
+                  p.write_text(s.replace('azure.archive.ubuntu.com','archive.ubuntu.com'))
+          PYM
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 update -qq
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 install --no-install-recommends -y ffmpeg fonts-noto-cjk
+          ffmpeg -version | head -n 1
+      - name: Actual engine and audio merge fixture
+        working-directory: src
+        env:
+          CLIPCATCH_REAL_ENGINE_TEST: '1'
+        run: go test -run '^TestBrowserRealEngine$' -v .
+      - name: Actual Chromium extension handoff fixture
+        run: python tests/browser_e2e.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-bridge-qa
+          path: qa-output/
+          retention-days: 1
+          if-no-files-found: ignore
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.mod
+      - name: Windows unit tests and compile
+        working-directory: src
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.7.0' -o "$env:RUNNER_TEMP/ClipCatch.exe" .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

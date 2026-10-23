@@ -31,12 +31,12 @@ func (a *App) runBrowserJob(id string, j *Job) {
 			job.ErrorCode, job.ErrorTitle, job.ErrorAdvice = classifyDownloadError(msg, job.Host)
 			if strings.Contains(msg, "CC-312") {
 				job.ErrorCode = "CC-312"
-				job.ErrorTitle = "\ube0c\ub77c\uc6b0\uc800 \uc601\uc0c1 \uc8fc\uc18c\ub97c \ub2e4\uc2dc \ubc1b\uc544\uc57c \ud574"
-				job.ErrorAdvice = "\uc6d0\ubcf8 \uac8c\uc2dc\ubb3c\uc744 \uc5f4\uc5b4 \uc7ac\uc0dd\ud558\uace0 \ud655\uc7a5 \ud504\ub85c\uadf8\ub7a8\uc5d0\uc11c \ub2e4\uc2dc \ubcf4\ub0b4 \uc918."
+				job.ErrorTitle = "브라우저 영상 주소를 다시 받아야 해"
+				job.ErrorAdvice = "원본 게시물을 열어 재생하고 확장 프로그램에서 다시 보내 줘."
 			} else if job.ErrorCode == "CC-104" || job.ErrorCode == "CC-103" {
 				job.ErrorCode = "CC-314"
-				job.ErrorTitle = "\uc601\uc0c1 \uc11c\ubc84\uac00 \uc9c1\uc811 \uc800\uc7a5\uc744 \uac70\ubd80\ud588\uc5b4"
-				job.ErrorAdvice = "\ube0c\ub77c\uc6b0\uc800 \uc7ac\uc0dd\uacfc \ubcc4\uac1c\ub85c \uc601\uc0c1 \uc8fc\uc18c\uac00 \ub9cc\ub8cc\ub410\uac70\ub098 \uc811\uadfc\uc774 \uc81c\ud55c\ub420 \uc218 \uc788\uc5b4. \ub2e4\uc2dc \uac10\uc9c0\ud574\ub3c4 \uc548 \ub418\uba74 \uc774 \uacbd\ub85c\ub85c\ub294 \uc800\uc7a5\ud560 \uc218 \uc5c6\uc5b4."
+				job.ErrorTitle = "영상 서버가 직접 저장을 거부했어"
+				job.ErrorAdvice = "브라우저 재생과 별개로 영상 주소가 만료됐거나 접근이 제한될 수 있어. 다시 감지해도 안 되면 이 경로로는 저장할 수 없어."
 			}
 			job.Detail = job.ErrorTitle
 		})
@@ -44,7 +44,7 @@ func (a *App) runBrowserJob(id string, j *Job) {
 	}
 	got := a.getJob(id)
 	if got == nil || !nonempty(got.File) {
-		a.browserJobError(id, "CC-315", "\uc800\uc7a5\ub41c \uc601\uc0c1 \ud30c\uc77c\uc744 \ud655\uc778\ud558\uc9c0 \ubabb\ud588\uc5b4")
+		a.browserJobError(id, "CC-315", "저장된 영상 파일을 확인하지 못했어")
 		return
 	}
 	a.mu.Lock()
@@ -59,11 +59,11 @@ func (a *App) runBrowserJob(id string, j *Job) {
 		return
 	}
 	if err != nil || !video {
-		a.browserJobError(id, "CC-315", "\uc800\uc7a5 \ud30c\uc77c\uc758 \uc601\uc0c1\u00b7\uc74c\uc131 \uac80\uc0ac\uc5d0 \uc2e4\ud328\ud588\uc5b4")
+		a.browserJobError(id, "CC-315", "저장 파일의 영상·음성 검사에 실패했어")
 		return
 	}
 	if !audio && !media.AllowSilent {
-		a.browserJobError(id, "CC-313", "\uc800\uc7a5\ub41c \uc601\uc0c1\uc5d0 \uc74c\uc131\uc774 \uc5c6\uc5b4")
+		a.browserJobError(id, "CC-313", "저장된 영상에 음성이 없어")
 		return
 	}
 	a.mutateJob(id, func(job *Job) {
@@ -78,11 +78,11 @@ func (a *App) runBrowserJob(id string, j *Job) {
 		job.ErrorTitle = ""
 		job.ErrorAdvice = ""
 		job.AuthRequired = false
-		job.Detail = "\ube0c\ub77c\uc6b0\uc800 \uc601\uc0c1 \uc800\uc7a5 \uc644\ub8cc"
+		job.Detail = "브라우저 영상 저장 완료"
 		if audio {
-			job.Detail += " \u00b7 \uc601\uc0c1\u00b7\uc74c\uc131 \ud655\uc778"
+			job.Detail += " · 영상·음성 확인"
 		} else {
-			job.Detail += " \u00b7 \ubb34\uc74c \uc800\uc7a5 \ud5c8\uc6a9\ub428"
+			job.Detail += " · 무음 저장 허용됨"
 		}
 	})
 }
@@ -96,7 +96,10 @@ func (a *App) browserJobError(id, code, title string) {
 		j.ErrorCode = code
 		j.ErrorTitle = title
 		j.Detail = title
-		j.ErrorAdvice = "\uc6d0\ubcf8\uc774 \ubb34\uc74c \uc601\uc0c1\uc778\uc9c0 \ud655\uc778\ud574 \uc918. \ubb34\uc74c\uc774 \ub9de\uc73c\uba74 \ud655\uc7a5\uc758 [\ubb34\uc74c \uc800\uc7a5 \ud5c8\uc6a9]\uc744 \uccb4\ud06c\ud574 \ub2e4\uc2dc \ubcf4\ub0b4 \uc918. \uae30\uc874 \ud30c\uc77c\uc740 \uc0ad\uc81c\ud558\uc9c0 \uc54a\uc558\uc5b4."
+		j.ErrorAdvice = "원본이 무음 영상인지 확인해 줘. 무음이 맞으면 확장의 [무음 저장 허용]을 체크해 다시 보내 줘. 기존 파일은 삭제하지 않았어."
+		if code != "CC-313" {
+			j.ErrorAdvice = "문제 해결에서 영상·음성 처리 도구와 저장 폴더를 점검해 줘. 확장에서 영상을 다시 찾아 보내 줘. 인증 파일을 다시 등록할 필요는 없어."
+		}
 	})
 }
 func (a *App) inspectBrowserOutput(parent context.Context, path string) (bool, bool, error) {
