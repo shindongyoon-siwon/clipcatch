@@ -66,6 +66,10 @@ func (a *App) runBrowserJob(id string, j *Job) {
 		a.browserJobError(id, "CC-313", "저장된 영상에 음성이 없어")
 		return
 	}
+	if j.OutputMode == premiereMode {
+		a.finishPremiere(id, ctx)
+		return
+	}
 	a.mutateJob(id, func(job *Job) {
 		if job.Status == "cancelled" {
 			return

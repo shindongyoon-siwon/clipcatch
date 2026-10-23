@@ -1,0 +1,48 @@
+name: Premiere compatibility checks
+on:
+  pull_request:
+    branches: [main]
+    paths: ['src/**', 'tests/**', '.github/workflows/premiere-compatibility.yml']
+permissions:
+  contents: read
+concurrency:
+  group: premiere-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  media-compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Capture reviewed source snapshot
+        run: git archive --format=zip HEAD -o source-snapshot.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: premiere-source-snapshot
+          path: source-snapshot.zip
+          retention-days: 1
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install media fixture dependencies
+        timeout-minutes: 4
+        run: |
+          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/apt-mirrors.txt || true
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 update -qq
+          sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 install --no-install-recommends -y ffmpeg
+          python -m pip install --disable-pip-version-check --timeout 30 --retries 2 yt-dlp==2026.10.21
+      - name: Validate media and preserve original streams
+        working-directory: src
+        env:
+          CLIPCATCH_EDIT_MEDIA_TEST: '1'
+        run: |
+          go test -race -v ./...
+          go vet ./...
+      - name: Verify source quality selection offline
+        run: python tests/premiere_formats.py

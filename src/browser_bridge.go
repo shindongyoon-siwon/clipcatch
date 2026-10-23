@@ -113,7 +113,7 @@ func(a *App)queueBrowserMedia(w http.ResponseWriter,r *http.Request){
  a.created++;id:=fmt.Sprintf("%d-%d",time.Now().UnixNano(),a.created)
  if in.Separate{id=fmt.Sprintf("bm_%s_%d_%d",mediaID,time.Now().UnixNano(),a.created)}
  a.trimHistoryLocked();a.browser.Sources[id]=in
- a.state.Jobs=append([]*Job{{ID:id,URL:in.PageURL,Host:"www.reddit.com",Title:in.Title,Status:"queued",Time:time.Now().Format("2006-01-02 15:04"),Detail:"브라우저에서 보낸 영상 대기 중",Redownload:dup,BrowserSource:true}},a.state.Jobs...);a.mu.Unlock()
+ a.state.Jobs=append([]*Job{{OutputMode:a.state.OutputMode,ID:id,URL:in.PageURL,Host:"www.reddit.com",Title:in.Title,Status:"queued",Time:time.Now().Format("2006-01-02 15:04"),Detail:"브라우저에서 보낸 영상 대기 중",Redownload:dup,BrowserSource:true}},a.state.Jobs...);a.mu.Unlock()
  select{case a.queue<-id:writeJSON(w,202,map[string]any{"ok":true,"id":id});default:a.mutateJob(id,func(j *Job){j.Status="error";j.Detail="대기열이 가득 참. 다시 보내 줘."});a.saveHistory();writeError(w,429,"Queue is full")}
 }
 func safeBrowserFilename(title string)string{title=strings.Map(func(r rune)rune{if unicode.IsControl(r)||strings.ContainsRune(`<>:"/\|?*%`,r){return '_'};return r},title);title=strings.Trim(title," .");if title==""{title="Reddit video"};return cut(title,80)}

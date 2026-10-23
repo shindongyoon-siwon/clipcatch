@@ -10,5 +10,5 @@ func init() {
  if err != nil { return }
  var manifest struct { Version string `json:"version"` }
  if json.Unmarshal(data, &manifest) != nil { return }
- if _, err := parseSemver(manifest.Version); err == nil { appVersion = manifest.Version }
+ if _, err := parseSemver(manifest.Version); err == nil && compareSemver(manifest.Version, appDefaultVersion) > 0 { appVersion = manifest.Version }
 }
