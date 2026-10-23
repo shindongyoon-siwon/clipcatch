@@ -54,9 +54,22 @@ jobs:
         timeout-minutes: 4
         run: python -m playwright install chromium
       - name: Test FFmpeg
-        timeout-minutes: 3
+        timeout-minutes: 4
         run: |
-          if ! command -v ffmpeg >/dev/null; then sudo apt-get update -qq; sudo apt-get install -y ffmpeg; fi
+          if ! command -v ffmpeg >/dev/null; then
+            sudo python3 - <<'PY'
+          from pathlib import Path
+          files=[Path('/etc/apt/apt-mirrors.txt'),Path('/etc/apt/sources.list')]
+          files+=list(Path('/etc/apt/sources.list.d').glob('*.sources'))
+          files+=list(Path('/etc/apt/sources.list.d').glob('*.list'))
+          for p in files:
+              if p.exists():
+                  s=p.read_text()
+                  p.write_text(s.replace('azure.archive.ubuntu.com','archive.ubuntu.com'))
+          PY
+            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 update -qq
+            sudo apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 install --no-install-recommends -y ffmpeg
+          fi
           ffmpeg -version | head -n 1
       - name: Actual engine and audio merge fixture
         working-directory: src
