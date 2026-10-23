@@ -10,6 +10,7 @@ import (
 var separateBrowserJobRE = regexp.MustCompile(`^bm_([a-z0-9]{5,40})_[0-9]+_[0-9]+$`)
 func selectedRedditKey(page, media string) string { return canonicalJobKey(page) + "|reddit-media:" + media }
 func downloadJobKey(j *Job) string {
+ if j.Task == "convert" {return "local-convert:" + j.OriginalFile}
  if j.BrowserSource { if m := separateBrowserJobRE.FindStringSubmatch(j.ID); m != nil { return selectedRedditKey(j.URL, m[1]) } }
  return canonicalJobKey(j.URL)
 }

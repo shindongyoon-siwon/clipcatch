@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.7.1"
+	appDefaultVersion = "1.8.0"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -45,6 +45,11 @@ var (
 )
 
 type Job struct {
+	OutputMode    string  `json:"output_mode,omitempty"`
+	Task          string  `json:"task,omitempty"`
+	OriginalFile  string  `json:"original_file,omitempty"`
+	EditReady     bool    `json:"edit_ready,omitempty"`
+	Stage         string  `json:"stage,omitempty"`
 	BrowserSource bool    `json:"browser_source,omitempty"`
 	ID            string  `json:"id"`
 	URL           string  `json:"url"`
@@ -65,6 +70,7 @@ type Job struct {
 }
 
 type ClientState struct {
+	OutputMode      string          `json:"output_mode"`
 	Version         string          `json:"version"`
 	Phase           string          `json:"phase"`
 	SetupText       string          `json:"setup_text"`
@@ -80,27 +86,28 @@ type ClientState struct {
 }
 
 type App struct {
-	browser       browserBridgeState
-	mu            sync.Mutex
-	persistMu     sync.Mutex
-	state         ClientState
-	dataDir       string
-	toolDir       string
-	saveDir       string
-	ytDlp         string
-	ffmpeg        string
-	queue         chan string
-	created       int64
-	mux           *http.ServeMux
-	server        *http.Server
-	activeCmd     *exec.Cmd
-	activeJobID   string
-	activeCancel  context.CancelFunc
-	activeContext context.Context
-	downloaded    map[string]downloadRecord
-	latestRelease verifiedRelease
-	redditCookies []byte
-	engineMeta    EngineMetadata
+	premiereSelecting bool
+	browser           browserBridgeState
+	mu                sync.Mutex
+	persistMu         sync.Mutex
+	state             ClientState
+	dataDir           string
+	toolDir           string
+	saveDir           string
+	ytDlp             string
+	ffmpeg            string
+	queue             chan string
+	created           int64
+	mux               *http.ServeMux
+	server            *http.Server
+	activeCmd         *exec.Cmd
+	activeJobID       string
+	activeCancel      context.CancelFunc
+	activeContext     context.Context
+	downloaded        map[string]downloadRecord
+	latestRelease     verifiedRelease
+	redditCookies     []byte
+	engineMeta        EngineMetadata
 }
 
 func newApp(dataDir, saveDir string) *App {
@@ -119,6 +126,7 @@ func newApp(dataDir, saveDir string) *App {
 		Jobs:      make([]*Job, 0),
 		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
+	a.initPremiere()
 	a.initBrowserBridge()
 	// Existing unpacked extension: refresh bundled files in place after an app update.
 	// Chrome/Edge still requires an explicit Reload or restart to activate new JS.
@@ -152,7 +160,7 @@ func (a *App) routes() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(strings.ReplaceAll(string(b), "__APP_VERSION__", appVersion)))
+		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
 	})
 	// Serve the app's distinctive tab icon from the executable (no extra files needed).
 	for _, asset := range []struct{ path, mediaType string }{
@@ -239,6 +247,7 @@ func (a *App) routes() {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = w.Write(b)
 	})
+	a.premiereRoutes(mux)
 	a.mux = mux
 }
 
@@ -424,7 +433,8 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		a.created++
 		id := fmt.Sprintf("%d-%d", time.Now().UnixNano(), a.created)
 		a.state.Jobs = append([]*Job{{
-			ID: id, URL: it.u, Host: it.h, Title: "제목 확인 중...", Status: "queued",
+			OutputMode: a.state.OutputMode,
+			ID:         id, URL: it.u, Host: it.h, Title: "제목 확인 중...", Status: "queued",
 			Time: time.Now().Format("2006-01-02 15:04"), Detail: "다운로드 대기 중",
 			Redownload: isRedownload,
 		}}, a.state.Jobs...)
@@ -551,6 +561,10 @@ func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool
 	if impersonate && isRedditHost(j.Host) {
 		args = append(args, "--impersonate", "chrome")
 	}
+	if j.OutputMode == premiereMode {
+		// Resolution and frame rate outrank codec preference: never silently take a smaller AVC stream.
+		args = append(args, "--format-sort-force", "-S", "hasvid,res,fps,hdr:12,lang,+vcodec:avc,+acodec:m4a")
+	}
 	return append(args, j.URL)
 }
 
@@ -628,6 +642,10 @@ func (a *App) runDownload(id string) {
 		a.mu.Unlock()
 	}()
 
+	if j.Task == "convert" || (j.OutputMode == premiereMode && nonempty(j.OriginalFile)) {
+		a.finishPremiere(id, ctx)
+		return
+	}
 	if j.BrowserSource {
 		a.runBrowserJob(id, j)
 		return
@@ -690,6 +708,10 @@ func (a *App) runDownload(id string) {
 				j.Detail = "영상 서버가 연결을 끊었어. 원본 링크에서 재생되는지 확인해 줘."
 			}
 		})
+		return
+	}
+	if j.OutputMode == premiereMode {
+		a.finishPremiere(id, ctx)
 		return
 	}
 	a.mutateJob(id, func(j *Job) {

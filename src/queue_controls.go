@@ -93,7 +93,7 @@ func (a *App) saveHistory() {
  a.persistMu.Lock();defer a.persistMu.Unlock();a.mu.Lock()
  history:=make([]*Job,0,len(a.state.Jobs));if a.downloaded==nil {a.downloaded=make(map[string]downloadRecord)}
  for _,j:=range a.state.Jobs {
-  if j.Status=="done"&&nonempty(j.File){key:=downloadJobKey(j);if r,exists:=a.downloaded[key];!exists||r.Time<=j.Time {a.downloaded[key]=downloadRecord{File:j.File,Title:j.Title,Time:j.Time,Stamp:time.Now().Unix()}}}
+  if j.Task!="convert"&&j.Status=="done"&&nonempty(j.File){key:=downloadJobKey(j);if r,exists:=a.downloaded[key];!exists||r.Time<=j.Time {a.downloaded[key]=downloadRecord{File:j.File,Title:j.Title,Time:j.Time,Stamp:time.Now().Unix()}}}
   if j.Status=="done"||j.Status=="error"||j.Status=="cancelled" {if len(history)<historyLimit {cp:=*j;history=append(history,&cp)}}
  }
  a.trimHistoryLocked()
