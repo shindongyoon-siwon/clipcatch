@@ -1,0 +1,58 @@
+name: Quality engine review
+on:
+  push:
+    branches: [feature/quality-tools-review]
+    paths: [.github/workflows/quality-engine-review.yml]
+permissions:
+  contents: read
+jobs:
+  official-engine:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download version-pinned upstream assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p engine-review
+          for os in windows ubuntu; do
+            curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' \
+              "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-${os}.zip" \
+              -o "engine-review/${os}.zip"
+          done
+          sha256sum engine-review/*.zip | tee engine-review/SHA256SUMS
+          unzip -l engine-review/windows.zip > engine-review/windows-files.txt
+          unzip -q engine-review/ubuntu.zip -d engine-review/linux
+      - name: CPU Vulkan and FFmpeg for inference fixture
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y mesa-vulkan-drivers libvulkan1 ffmpeg
+      - name: Real inference on a synthetic image
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENGINE="$(find engine-review/linux -name realesrgan-ncnn-vulkan -type f | head -n 1)"
+          chmod +x "$ENGINE"
+          MODEL="$(dirname "$ENGINE")/models"
+          ffmpeg -v error -f lavfi -i testsrc2=size=32x24 -frames:v 1 engine-review/input.png
+          timeout 180 "$ENGINE" -i engine-review/input.png -o engine-review/output.png -n realesrgan-x4plus -s 4 -t 32 -m "$MODEL" -j 1:1:1 2>engine-review/inference.log
+          ffprobe -v error -show_entries stream=width,height,pix_fmt -of json engine-review/output.png | tee engine-review/result.json
+          python3 - <<'PY'
+          import json
+          r=json.load(open('engine-review/result.json'))['streams'][0]
+          assert (r['width'],r['height'])==(128,96),r
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-engine-review
+          path: |
+            engine-review/SHA256SUMS
+            engine-review/windows-files.txt
+            engine-review/inference.log
+            engine-review/result.json
+            engine-review/input.png
+            engine-review/output.png
+          retention-days: 7
