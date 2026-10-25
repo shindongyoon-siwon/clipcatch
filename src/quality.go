@@ -216,6 +216,7 @@ func (a *App) startQualityTask(w http.ResponseWriter, r *http.Request) {
 func (a *App) runQualityTask(ctx context.Context, id string, j *Job) {
 	ctx, stop := context.WithTimeout(ctx, 2*time.Hour)
 	defer stop()
+	defer a.finishQualityDeadline(ctx, id)
 	fail := func(e error) {
 		if ctx.Err() != nil || a.isJobCancelled(id) {
 			return
