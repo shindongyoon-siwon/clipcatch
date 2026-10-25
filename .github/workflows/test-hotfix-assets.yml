@@ -1,0 +1,31 @@
+name: TEST2 pinned AI assets
+on:
+  push:
+    branches: [test/hotfix-1.9.1-2-assets]
+    paths: [.github/workflows/test-hotfix-assets.yml]
+permissions:
+  contents: read
+jobs:
+  assets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download fixed upstream archives and check review hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir assets
+          for os in windows ubuntu; do
+            curl --fail --location --retry 2 --max-time 90 --proto '=https' --proto-redir '=https' \
+              "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-${os}.zip" \
+              -o "assets/${os}.zip"
+          done
+          echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  assets/windows.zip' | sha256sum -c -
+          echo 'e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96  assets/ubuntu.zip' | sha256sum -c -
+          sha256sum assets/*.zip > assets/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test2-pinned-ai-assets
+          path: assets/
+          retention-days: 1
+          compression-level: 0
