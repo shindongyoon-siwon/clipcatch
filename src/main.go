@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.8.0"
+	appDefaultVersion = "1.9.0"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -45,28 +45,34 @@ var (
 )
 
 type Job struct {
-	OutputMode    string  `json:"output_mode,omitempty"`
-	Task          string  `json:"task,omitempty"`
-	OriginalFile  string  `json:"original_file,omitempty"`
-	EditReady     bool    `json:"edit_ready,omitempty"`
-	Stage         string  `json:"stage,omitempty"`
-	BrowserSource bool    `json:"browser_source,omitempty"`
-	ID            string  `json:"id"`
-	URL           string  `json:"url"`
-	Host          string  `json:"host"`
-	Title         string  `json:"title"`
-	Status        string  `json:"status"`
-	Percent       float64 `json:"percent"`
-	Speed         string  `json:"speed"`
-	ETA           string  `json:"eta"`
-	File          string  `json:"file"`
-	Detail        string  `json:"detail"`
-	Time          string  `json:"time"`
-	AuthRequired  bool    `json:"auth_required,omitempty"`
-	Redownload    bool    `json:"redownload,omitempty"`
-	ErrorCode     string  `json:"error_code,omitempty"`
-	ErrorTitle    string  `json:"error_title,omitempty"`
-	ErrorAdvice   string  `json:"error_advice,omitempty"`
+	Quality            *qualityTask     `json:"quality,omitempty"`
+	ForceCompatible    bool             `json:"force_compatible,omitempty"`
+	WholePost          bool             `json:"whole_post,omitempty"`
+	MediaOverflow      bool             `json:"media_overflow,omitempty"`
+	DownloadIncomplete bool             `json:"download_incomplete,omitempty"`
+	Media              []savedPostMedia `json:"media,omitempty"`
+	OutputMode         string           `json:"output_mode,omitempty"`
+	Task               string           `json:"task,omitempty"`
+	OriginalFile       string           `json:"original_file,omitempty"`
+	EditReady          bool             `json:"edit_ready,omitempty"`
+	Stage              string           `json:"stage,omitempty"`
+	BrowserSource      bool             `json:"browser_source,omitempty"`
+	ID                 string           `json:"id"`
+	URL                string           `json:"url"`
+	Host               string           `json:"host"`
+	Title              string           `json:"title"`
+	Status             string           `json:"status"`
+	Percent            float64          `json:"percent"`
+	Speed              string           `json:"speed"`
+	ETA                string           `json:"eta"`
+	File               string           `json:"file"`
+	Detail             string           `json:"detail"`
+	Time               string           `json:"time"`
+	AuthRequired       bool             `json:"auth_required,omitempty"`
+	Redownload         bool             `json:"redownload,omitempty"`
+	ErrorCode          string           `json:"error_code,omitempty"`
+	ErrorTitle         string           `json:"error_title,omitempty"`
+	ErrorAdvice        string           `json:"error_advice,omitempty"`
 }
 
 type ClientState struct {
@@ -86,6 +92,7 @@ type ClientState struct {
 }
 
 type App struct {
+	qualitySources    map[string]qualitySource
 	premiereSelecting bool
 	browser           browserBridgeState
 	mu                sync.Mutex
@@ -127,6 +134,7 @@ func newApp(dataDir, saveDir string) *App {
 		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
 	a.initPremiere()
+	a.initQuality()
 	a.initBrowserBridge()
 	// Existing unpacked extension: refresh bundled files in place after an app update.
 	// Chrome/Edge still requires an explicit Reload or restart to activate new JS.
@@ -160,7 +168,7 @@ func (a *App) routes() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
+		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script><script src=\"/quality.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
 	})
 	// Serve the app's distinctive tab icon from the executable (no extra files needed).
 	for _, asset := range []struct{ path, mediaType string }{
@@ -187,7 +195,7 @@ func (a *App) routes() {
 		state := a.state
 		state.Jobs = make([]*Job, len(a.state.Jobs))
 		for i, j := range a.state.Jobs {
-			copyJob := *j
+			copyJob := cloneDownloadJob(j)
 			state.Jobs[i] = &copyJob
 		}
 		a.mu.Unlock()
@@ -248,6 +256,7 @@ func (a *App) routes() {
 		_, _ = w.Write(b)
 	})
 	a.premiereRoutes(mux)
+	a.qualityRoutes(mux)
 	a.mux = mux
 }
 
@@ -267,7 +276,7 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	// The web page only controls the downloader listening on this machine.
 	host := r.Host
 	if !strings.HasPrefix(host, "127.0.0.1:") && !strings.HasPrefix(host, "localhost:") {
@@ -396,7 +405,7 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, err.Error())
 			return
 		}
-		key := canonicalJobKey(u)
+		key := requestedDownloadKey(u)
 		if !seen[key] {
 			seen[key] = true
 			inputs = append(inputs, input{u, h, key})
@@ -433,6 +442,7 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		a.created++
 		id := fmt.Sprintf("%d-%d", time.Now().UnixNano(), a.created)
 		a.state.Jobs = append([]*Job{{
+			WholePost:  isWholeVideoPost(it.u),
 			OutputMode: a.state.OutputMode,
 			ID:         id, URL: it.u, Host: it.h, Title: "제목 확인 중...", Status: "queued",
 			Time: time.Now().Format("2006-01-02 15:04"), Detail: "다운로드 대기 중",
@@ -476,7 +486,7 @@ func (a *App) getJob(id string) *Job {
 	defer a.mu.Unlock()
 	for _, j := range a.state.Jobs {
 		if j.ID == id {
-			cp := *j
+			cp := cloneDownloadJob(j)
 			return &cp
 		}
 	}
@@ -565,7 +575,7 @@ func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool
 		// Resolution and frame rate outrank codec preference: never silently take a smaller AVC stream.
 		args = append(args, "--format-sort-force", "-S", "hasvid,res,fps,hdr:12,lang,+vcodec:avc,+acodec:m4a")
 	}
-	return append(args, j.URL)
+	return append(postDownloadArgs(j, args), j.URL)
 }
 
 func isRedditHost(host string) bool {
@@ -642,7 +652,11 @@ func (a *App) runDownload(id string) {
 		a.mu.Unlock()
 	}()
 
-	if j.Task == "convert" || (j.OutputMode == premiereMode && nonempty(j.OriginalFile)) {
+	if j.Task == "quality" || j.Task == "quality-engine" {
+		a.runQualityTask(ctx, id, j)
+		return
+	}
+	if j.Task == "convert" || (j.OutputMode == premiereMode && nonempty(j.OriginalFile) && !j.DownloadIncomplete) {
 		a.finishPremiere(id, ctx)
 		return
 	}
@@ -708,6 +722,17 @@ func (a *App) runDownload(id string) {
 				j.Detail = "영상 서버가 연결을 끊었어. 원본 링크에서 재생되는지 확인해 줘."
 			}
 		})
+		got := a.getJob(id)
+		if got != nil && len(got.Media) > 0 {
+			a.mutateJob(id, func(item *Job) { item.DownloadIncomplete = true })
+			a.finishPostMedia(id, ctx, j.OutputMode == premiereMode)
+		}
+		return
+	}
+	a.mutateJob(id, func(item *Job) { item.DownloadIncomplete = false })
+	got := a.getJob(id)
+	if got != nil && (got.WholePost || len(got.Media) > 1) {
+		a.finishPostMedia(id, ctx, j.OutputMode == premiereMode)
 		return
 	}
 	if j.OutputMode == premiereMode {
@@ -859,7 +884,7 @@ func (a *App) parseOutput(id, line string) {
 	} else if idx := strings.Index(line, "CLIP_FILE|"); idx >= 0 {
 		file := strings.TrimSpace(line[idx+len("CLIP_FILE|"):])
 		if file != "" {
-			a.mutateJob(id, func(j *Job) { j.File = file; j.Detail = "영상·오디오 병합 완료" })
+			a.recordPostFile(id, file)
 		}
 	} else if strings.Contains(line, "[Merger]") || strings.Contains(line, "[VideoRemuxer]") {
 		a.mutateJob(id, func(j *Job) { j.Detail = "영상과 소리를 합치는 중..." })

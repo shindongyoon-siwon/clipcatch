@@ -1,3 +1,22 @@
+# ClipCatch v1.9.0
+
+## Premiere safety and optional local quality tools
+
+Read [scope, limitations and evidence](docs/QUALITY_REVIEW.md). The main app remains one Windows EXE. Optional AI assets download only after consent. Image/video upscaling is not enabled on normal downloads. Preview before saving; keep originals.
+
+Premiere repair explicitly produces a CFR H.264/AAC copy. An FFmpeg test is not a Premiere import test.
+
+
+## Multiple videos in a single post
+
+- Supported X/Twitter status posts and Instagram post/reel URLs request all video attachments returned by yt-dlp. Profiles, feeds and YouTube playlists are not expanded by this feature.
+- The browser companion groups numbered X links into the original post and labels choices as all videos in that post. Explicit numbered X URLs pasted into the desktop app still target that numbered video.
+- Every completed media file is retained in history. Premiere mode prepares each file, not only the last one, and preserves every original.
+- Successful files survive partial failures. A post is marked complete only if all returned files pass preparation and the downloader did not report a failure.
+- Old one-file history does not suppress a new whole-post request. A missing saved attachment makes the post eligible for retry.
+- Downloading/decoding is not antivirus scanning; do not disable company Windows security or share cookie files.
+- Desktop Windows only. No mobile server or mobile app has been added.
+
 # ClipCatch v1.7.1
 
 ClipCatch is a single-file Windows 64-bit downloader for approved public video platforms.

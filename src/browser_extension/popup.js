@@ -4,18 +4,18 @@ function notice(t,error=false){$('status').textContent=t;$('status').classList.t
 async function message(m){const r=await chrome.runtime.sendMessage(m);if(!r?.ok){const e=Error(r?.error||'Request failed');e.duplicate=!!r?.duplicate;throw e;}return r.data;}
 function buttons(){
  $('send').disabled=working||!paired||!selected.size;
- $('send').textContent=working?'보내는 중...':selected.size?`선택한 ${selected.size}개 다운로드`:'영상을 선택해 줘';
+ $('send').textContent=working?'보내는 중...':selected.size?`선택한 ${selected.size}개 항목 다운로드`:'영상을 선택해 줘';
  $('selectionCount').textContent=`${selected.size}개 선택`;
  $('selectAll').checked=candidates.length>0&&selected.size===Math.min(10,candidates.length);
  $('selectAll').disabled=working;$('refresh').disabled=working;
 }
 function render(){
- $('count').textContent=`영상 ${candidates.length}개`;$('list').replaceChildren();$('empty').hidden=!!candidates.length;
+ $('count').textContent=`선택 항목 ${candidates.length}개`;$('list').replaceChildren();$('empty').hidden=!!candidates.length;
  $('silentRow').hidden=!candidates.some(c=>c.kind==='video-only');
  for(const [i,c] of candidates.entries()){
   const row=document.createElement('label');row.className='video-item';const check=document.createElement('input');check.type='checkbox';check.checked=selected.has(c.key);check.disabled=working;check.setAttribute('aria-label',`${i+1}. ${c.title}`);
   check.onchange=()=>{if(check.checked){if(selected.size>=10){check.checked=false;notice('한 번에 최대 10개까지 선택해 줘.');return;}selected.add(c.key);}else selected.delete(c.key);buttons();};
-  const box=document.createElement('div'),badge=document.createElement('small');badge.className='video-meta';badge.textContent=c.platform+(c.part?' · 게시물 안 영상 '+c.part:'');
+  const box=document.createElement('div'),badge=document.createElement('small');badge.className='video-meta';badge.textContent=c.platform+(c.part?' \u00b7 \uac8c\uc2dc\ubb3c \uc548 \uc601\uc0c1 '+c.part:c.mode==='page'?' \u00b7 \uac8c\uc2dc\ubb3c \uc601\uc0c1 \uc804\uccb4':'');
   const title=document.createElement('strong');title.textContent=c.title||c.platform;const source=document.createElement('small');source.className='video-url';source.textContent=new URL(c.page_url).pathname;
   const result=document.createElement('small');result.className='item-status';const o=outcomes.get(c.key);if(o){result.textContent=o.ok?(o.pending?'이미 대기 중':'다운로드 대기열에 넣었어'):o.error;result.classList.toggle('error',!o.ok);}
   box.append(badge,title,source,result);row.append(check,box);$('list').append(row);

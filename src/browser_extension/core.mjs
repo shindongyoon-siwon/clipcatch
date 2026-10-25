@@ -27,13 +27,19 @@ export function groupMedia(domURLs,networkURLs,matched=true){
 export function pairingCode(raw){const u=new URL(String(raw||'').trim());if(u.protocol!=='http:'||!['127.0.0.1','localhost'].includes(u.hostname)||u.username||u.password||u.search||u.pathname!=='/'||!/^#[a-f0-9]{64}$/.test(u.hash)||!u.port||Number(u.port)<1024||Number(u.port)>65535)throw Error('Invalid ClipCatch pairing code');return {base:u.origin,code:u.hash.slice(1)};}
 export function supportedSite(raw){const u=baseURL(raw);if(!u)return '';const sites=[['reddit.com','Reddit'],['redd.it','Reddit'],['youtube.com','YouTube'],['youtu.be','YouTube'],['x.com','X'],['twitter.com','X'],['instagram.com','Instagram'],['facebook.com','Facebook'],['fb.watch','Facebook'],['tiktok.com','TikTok'],['vimeo.com','Vimeo'],['streamable.com','Streamable'],['twitch.tv','Twitch'],['imgur.com','Imgur']];return sites.find(([d])=>domainIs(u.hostname,d))?.[1]||'';}
 export function pageKey(raw){const p=videoPage(raw);if(!p)return '';const u=new URL(p.url),r=redditPost(p.url);if(r)return 'reddit:'+r.id;if(p.platform==='YouTube')return 'youtube:'+(u.searchParams.get('v')||u.pathname.split('/').filter(Boolean).at(-1));if(p.platform==='X (트위터)'){const m=u.pathname.match(/\/status\/(\d+)(?:\/video\/(\d+))?/);return m?'x:'+m[1]+(m[2]?':video:'+m[2]:''):p.url;}return u.hostname.replace(/^www\./,'')+u.pathname.replace(/\/$/,'');}
+export function wholePostPage(raw){
+ const p=videoPage(raw);if(!p)return null;const u=new URL(p.url);
+ if(p.platform==='X (\ud2b8\uc704\ud130)')u.pathname=u.pathname.replace(/(\/status\/\d+)\/video\/\d+\/?$/, '$1');
+ if(p.platform==='Instagram')u.searchParams.delete('img_index');
+ return {...p,url:u.href};
+}
 export function buildCandidates(d){
  if(!d||!supportedSite(d.page_url))return [];const found=[],seen=new Set(),site=supportedSite(d.page_url);
  function push(c){if(found.length<40&&!seen.has(c.key)){found.push(c);seen.add(c.key);}}
- for(const r of (d.records||[]).slice(0,60)){const p=videoPage(r.page_url);if(!p||supportedSite(p.url)!==site)continue;const base=pageKey(p.url),title=String(r.title||p.platform).slice(0,250),groups=p.type==='reddit'&&r.matched===true?groupMedia((r.dom_urls||[]).slice(0,60),[],true):[];
+ for(const r of (d.records||[]).slice(0,60)){const p=wholePostPage(r.page_url);if(!p||supportedSite(p.url)!==site)continue;const base=pageKey(p.url),title=String(r.title||p.platform).slice(0,250),groups=p.type==='reddit'&&r.matched===true?groupMedia((r.dom_urls||[]).slice(0,60),[],true):[];
   if(groups.length)groups.forEach((g,i)=>push({key:base+':media:'+g.id,page_url:p.url,platform:p.platform,title,mode:'media',media_id:g.id,media_url:g.media_url,audio_url:g.audio_url,kind:g.kind,quality:g.quality,part:groups.length>1?`${i+1}/${groups.length}`:'',matched:true}));
   else push({key:base,page_url:p.url,platform:p.platform,title,mode:'page',part:''});
  }
- const current=videoPage(d.page_url);if(current){const k=pageKey(current.url);if(!found.some(c=>pageKey(c.page_url)===k))push({key:k,page_url:current.url,platform:current.platform,title:String(d.title||current.platform).slice(0,250),mode:'page',part:''});found.sort((a,b)=>Number(pageKey(b.page_url)===k)-Number(pageKey(a.page_url)===k));}
+ const current=wholePostPage(d.page_url);if(current){const k=pageKey(current.url);if(!found.some(c=>pageKey(c.page_url)===k))push({key:k,page_url:current.url,platform:current.platform,title:String(d.title||current.platform).slice(0,250),mode:'page',part:''});found.sort((a,b)=>Number(pageKey(b.page_url)===k)-Number(pageKey(a.page_url)===k));}
  return found;
 }
