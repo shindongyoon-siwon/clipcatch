@@ -1,0 +1,70 @@
+name: TEST2 actual AI same-size processing
+on:
+  push:
+    branches: [test/hotfix-1.9.1-2-assets]
+    paths: [.github/workflows/test2-ai-processing.yml]
+permissions:
+  contents: read
+jobs:
+  ai-processing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: Install software Vulkan and media tools
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1 ffmpeg
+      - name: Prepare pinned official engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir engine evidence
+          curl -fL --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip -o engine/ai.zip
+          echo 'e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96  engine/ai.zip' | sha256sum -c -
+          unzip -q engine/ai.zip -d engine/bin
+          chmod +x engine/bin/realesrgan-ncnn-vulkan
+          echo "CLIPCATCH_AI_ENGINE_TEST=$PWD/engine/bin/realesrgan-ncnn-vulkan" >> "$GITHUB_ENV"
+      - name: Test actual same-size image and video AI
+        env:
+          CLIPCATCH_QUALITY_TEST: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > src/test2_same_size_test.go <<'GO'
+          package main
+          import("context";"os";"path/filepath";"testing")
+          // TEST2 uses these unchanged rendering functions. UI/input-validation
+          // and installation isolation are tested separately in the local patch.
+          func TestTEST2SameSizeAI(t *testing.T){
+            ff:=testQualityFF(t);engine:=os.Getenv("CLIPCATCH_AI_ENGINE_TEST");dir:=t.TempDir()
+            source:=testQualityImage(t,dir,false);before,_:=qualityFileHash(source)
+            q,e:=describeQualitySource(context.Background(),ff,source);if e!=nil{t.Fatal(e)}
+            opts:=qualityOptions{Mode:"ai",Scale:1,Strength:.65}
+            out:=filepath.Join(dir,"same-size.png")
+            if e:=renderQualityImage(context.Background(),ff,engine,source,out,dir,opts,q.Width,q.Height);e!=nil{t.Fatal(e)}
+            if e:=validateQualityOutput(context.Background(),ff,out,q,opts);e!=nil{t.Fatal(e)}
+            a,_:=readPNG(source);b,_:=readPNG(out);different:=0
+            for y:=0;y<q.Height;y++{for x:=0;x<q.Width;x++{r,g,bl,_:=a.At(x,y).RGBA();rr,gg,bb,_:=b.At(x,y).RGBA();if r!=rr||g!=gg||bl!=bb{different++}}}
+            after,_:=qualityFileHash(source);if before!=after||different==0{t.Fatal("source changed or AI was not applied")}
+            t.Logf("Same-size image: %dx%d, changed pixels %d; original preserved",q.Width,q.Height,different)
+            vdir:=t.TempDir();video:=qualityFixtureVideo(t,ff,vdir);q,e=describeQualitySource(context.Background(),ff,video);if e!=nil{t.Fatal(e)}
+            before,_=qualityFileHash(video);opts.Seconds=.2;out=filepath.Join(vdir,"same-size.mp4")
+            if e:=renderQualityVideo(context.Background(),ff,engine,q,opts,out,vdir,nil);e!=nil{t.Fatal(e)}
+            if e:=validateQualityOutput(context.Background(),ff,out,q,opts);e!=nil{t.Fatal(e)}
+            after,_=qualityFileHash(video);if before!=after{t.Fatal("video original changed")}
+            t.Log("Same-size video: H264/AAC output, audio streams and source preserved")
+          }
+          GO
+          cd src
+          go test -count=1 -v -run 'TestTEST2SameSizeAI|TestQualityRealAIImageAndVideo' ./... | tee ../evidence/real-ai.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: test2-real-ai-evidence
+          path: evidence/
+          retention-days: 7
