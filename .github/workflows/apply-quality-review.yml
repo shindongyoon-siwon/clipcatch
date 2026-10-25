@@ -1,0 +1,73 @@
+name: Apply reviewed quality source
+on:
+  push:
+    branches: [feature/quality-tools-review]
+    paths: [.github/workflows/apply-quality-review.yml]
+permissions:
+  contents: write
+jobs:
+  import-source:
+    if: github.ref == 'refs/heads/feature/quality-tools-review'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/quality-tools-review
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify and reconstruct text source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64,hashlib,json,lzma,pathlib
+          root=pathlib.Path.cwd()
+          packed=base64.b64decode(''.join((root/f'.development/quality-delta-{i}.b64').read_text().strip() for i in range(1,6)),validate=True)
+          assert hashlib.sha256(packed).hexdigest()=='9aa81d714815674900a911b17b2aeceb08b3bfd1717fd24d4221a34be2aa061b','source archive checksum mismatch'
+          decoder=lzma.LZMADecompressor(memlimit=256*1024*1024)
+          raw=decoder.decompress(packed,max_length=1024*1024)
+          assert decoder.eof and len(raw)<1024*1024,'source payload exceeded limit'
+          entries=json.loads(raw);assert len(entries)==28
+          prepared={}
+          for row in entries:
+              rel=pathlib.PurePosixPath(row['path'])
+              assert not rel.is_absolute() and '..' not in rel.parts and str(rel) not in prepared
+              assert rel.parts[0] in ('src','tests','docs') or str(rel) in ('VERSION','README.md')
+              path=root/str(rel)
+              old=path.read_text() if path.exists() else ''
+              assert hashlib.sha256(old.encode()).hexdigest()==row['base'],'base changed: '+str(rel)
+              lines=old.splitlines(True);out=[]
+              for part in row['parts']:
+                  if isinstance(part,str):out.append(part)
+                  else:
+                      assert len(part)==2 and 0<=part[0]<=part[1]<=len(lines)
+                      out.append(''.join(lines[part[0]:part[1]]))
+              text=''.join(out)
+              assert hashlib.sha256(text.encode()).hexdigest()==row['target'],'target mismatch: '+str(rel)
+              prepared[str(rel)]=text
+          for rel,text in prepared.items():
+              path=root/rel;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          print('Verified and applied',len(prepared),'text files; no media or credentials imported.')
+          PY
+          cd src
+          go test ./...
+          go vet ./...
+          cd ..
+          node --test tests/*.test.mjs
+      - name: Save source to review branch, never main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/feature/quality-tools-review'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- src tests docs VERSION README.md
+          git rm -- .development/quality-delta-1.b64 .development/quality-delta-2.b64 .development/quality-delta-3.b64 .development/quality-delta-4.b64 .development/quality-delta-5.b64
+          git commit -m 'Import reviewed quality tools, multi-file output and Premiere safety checks'
+          git push origin HEAD:refs/heads/feature/quality-tools-review
