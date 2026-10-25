@@ -1,0 +1,45 @@
+name: TEST1912 actual AI inference
+on:
+  push:
+    branches: [test/1912-hotfix-assets]
+    paths: [.github/workflows/test1912-inference.yml]
+permissions:
+  contents: read
+jobs:
+  inference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: Install test tools
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg mesa-vulkan-drivers libvulkan1
+      - name: Fixed official AI package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ai"
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip -o "$RUNNER_TEMP/ai.zip"
+          echo "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96  $RUNNER_TEMP/ai.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/ai.zip" -d "$RUNNER_TEMP/ai"
+          ENGINE="$(find "$RUNNER_TEMP/ai" -type f -name realesrgan-ncnn-vulkan | head -n 1)"
+          chmod +x "$ENGINE"
+          echo "CLIPCATCH_AI_ENGINE_TEST=$ENGINE" >> "$GITHUB_ENV"
+      - name: Actual model output and video audio preservation
+        working-directory: src
+        env:
+          CLIPCATCH_QUALITY_TEST: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -v -count=1 -run 'Test1912ActualOriginalSizeAI|TestQualityRealAIImageAndVideo' ./... | tee ../test1912-inference.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: test1912-inference-evidence
+          path: test1912-inference.log
+          retention-days: 3
