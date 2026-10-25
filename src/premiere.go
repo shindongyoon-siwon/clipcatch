@@ -93,7 +93,8 @@ func (a *App) setOutputMode(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) convertHistoryFile(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		ID string `json:"id"`
+		ID   string `json:"id"`
+		Safe bool   `json:"safe"`
 	}
 	if premiereJSON(w, r, &in) != nil || in.ID == "" {
 		writeError(w, 400, "\ubcc0\ud658\ud560 \uc601\uc0c1\uc744 \uc120\ud0dd\ud574 \uc918.")
@@ -104,18 +105,35 @@ func (a *App) convertHistoryFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "\uc791\uc5c5\uc774 \ub05d\ub09c \uc601\uc0c1\ub9cc \ubcc0\ud658\ud560 \uc218 \uc788\uc5b4.")
 		return
 	}
+	if len(j.Media) > 1 {
+		items := []map[string]string{}
+		for _, item := range j.Media {
+			if !in.Safe && item.EditReady && nonempty(item.File) {
+				continue
+			}
+			id, err := a.queueEditFile(item.Original, j.URL, in.Safe)
+			result := map[string]string{"id": id, "name": filepath.Base(item.Original)}
+			if err != nil {
+				result["error"] = editErrorMessage(err)
+			}
+			items = append(items, result)
+		}
+		writeJSON(w, 202, map[string]any{"ok": true, "items": items})
+		return
+	}
 	source := j.OriginalFile
 	if source == "" {
 		source = j.File
 	}
-	id, e := a.queueEditFile(source, j.URL)
+	id, e := a.queueEditFile(source, j.URL, in.Safe)
 	if e != nil {
 		writeError(w, 409, editErrorMessage(e))
 		return
 	}
 	writeJSON(w, 202, map[string]any{"ok": true, "id": id})
 }
-func (a *App) queueEditFile(source, url string) (string, error) {
+func (a *App) queueEditFile(source, url string, force ...bool) (string, error) {
+	safe := len(force) > 0 && force[0]
 	if !filepath.IsAbs(source) {
 		return "", errors.New("edit-input")
 	}
@@ -138,7 +156,7 @@ func (a *App) queueEditFile(source, url string) (string, error) {
 	for _, j := range a.state.Jobs {
 		if j.Status == "queued" || j.Status == "downloading" {
 			active++
-			if j.Task == "convert" && j.OriginalFile == source {
+			if j.Task == "convert" && j.OriginalFile == source && j.ForceCompatible == safe {
 				a.mu.Unlock()
 				return j.ID, nil
 			}
@@ -151,7 +169,7 @@ func (a *App) queueEditFile(source, url string) (string, error) {
 	a.created++
 	id := fmt.Sprintf("pc_%d_%d", time.Now().UnixNano(), a.created)
 	a.trimHistoryLocked()
-	j := &Job{ID: id, URL: url, Host: "PC \uc601\uc0c1", Title: filepath.Base(source), Status: "queued", Detail: "\ud3b8\uc9d1\uc6a9 MP4 \ubcc0\ud658 \ub300\uae30", Time: time.Now().Format("2006-01-02 15:04"), Task: "convert", OutputMode: premiereMode, OriginalFile: source}
+	j := &Job{ForceCompatible: safe, ID: id, URL: url, Host: "PC \uc601\uc0c1", Title: filepath.Base(source), Status: "queued", Detail: "\ud3b8\uc9d1\uc6a9 MP4 \ubcc0\ud658 \ub300\uae30", Time: time.Now().Format("2006-01-02 15:04"), Task: "convert", OutputMode: premiereMode, OriginalFile: source}
 	a.state.Jobs = append([]*Job{j}, a.state.Jobs...)
 	a.mu.Unlock()
 	select {
@@ -166,7 +184,9 @@ func (a *App) queueEditFile(source, url string) (string, error) {
 // File paths come only from an explicit native chooser or an existing job ID,
 // never from arbitrary filesystem paths in a web request.
 func (a *App) chooseEditFiles(w http.ResponseWriter, r *http.Request) {
-	var in struct{}
+	var in struct {
+		Safe bool `json:"safe"`
+	}
 	if premiereJSON(w, r, &in) != nil {
 		writeError(w, 400, "Invalid request")
 		return
@@ -191,7 +211,7 @@ func (a *App) chooseEditFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	results := []map[string]string{}
 	for _, f := range files {
-		id, err := a.queueEditFile(f, "")
+		id, err := a.queueEditFile(f, "", in.Safe)
 		result := map[string]string{"name": filepath.Base(f), "id": id}
 		if err != nil {
 			result["error"] = editErrorMessage(err)
@@ -232,6 +252,10 @@ func editStageText(stage string) string {
 		return "\uc601\uc0c1\ub9cc H.264\ub85c \ubcc0\ud658 \uc911 \u00b7 \uc6d0\ubcf8 \ubcf4\uc874"
 	case "video-audio":
 		return "H.264\u00b7AAC MP4 \ubcc0\ud658 \uc911 \u00b7 \uc6d0\ubcf8 \ubcf4\uc874"
+	case "decode":
+		return "\uc601\uc0c1\uacfc \uc18c\ub9ac \uc804\uccb4 \uc7ac\uc0dd \uac80\uc0ac \uc911"
+	case "safe":
+		return "\ud638\ud658\uc131 \uc7ac\ubcc0\ud658 \uc911 \u00b7 \uace0\uc815 \ud504\ub808\uc784 H.264/AAC"
 	case "verify":
 		return "MP4 \ud615\uc2dd\u00b7\uae38\uc774\u00b7\uc74c\uc131 \ud655\uc778 \uc911"
 	default:
@@ -242,6 +266,10 @@ func editErrorMessage(e error) string {
 	switch e.Error() {
 	case "edit-hdr":
 		return "HDR \uc601\uc0c1\uc740 \uc0c9\uc0c1 \ubcc0\ud615\uc744 \ud53c\ud558\uae30 \uc704\ud574 \uc790\ub3d9 \ubcc0\ud658\ud558\uc9c0 \uc54a\uc558\uc5b4. \uc6d0\ubcf8 \ud30c\uc77c\uc740 \ubcf4\uc874\ub3fc."
+	case "edit-decode":
+		return "\uc601\uc0c1\uc774\ub098 \uc74c\uc131\uc5d0 \uc190\uc0c1 \uac00\ub2a5\uc131\uc774 \uc788\uc5b4. \uc6d0\ubcf8\uc744 \ub2e4\uc2dc \ubc1b\uc544 \uc918."
+	case "edit-interlaced", "edit-rotation", "edit-rate":
+		return "\ud504\ub808\uc784\u00b7\ud68c\uc804\u00b7\uc778\ud130\ub808\uc774\uc2a4 \ud615\uc2dd\uc744 \uc548\uc804\ud558\uac8c \ubcc0\ud658\ud560 \uc218 \uc5c6\uc5b4. \uc6d0\ubcf8\uc740 \ubcf4\uc874\ub3fc."
 	case "edit-input":
 		return "\uc6d0\ubcf8 \uc601\uc0c1 \ud30c\uc77c\uc744 \ucc3e\uac70\ub098 \uc77d\uc744 \uc218 \uc5c6\uc5b4."
 	case "edit-no-video":
@@ -265,6 +293,10 @@ func editErrorMessage(e error) string {
 func (a *App) finishPremiere(id string, ctx context.Context) {
 	j := a.getJob(id)
 	if j == nil {
+		return
+	}
+	if len(j.Media) > 1 || (j.WholePost && len(j.Media) > 0) {
+		a.finishPostMedia(id, ctx, true)
 		return
 	}
 	source := j.OriginalFile
@@ -299,7 +331,7 @@ func (a *App) finishPremiere(id string, ctx context.Context) {
 			a.activeCmd = cmd
 		}
 		a.mu.Unlock()
-	})
+	}, j.ForceCompatible)
 	if ctx.Err() != nil || a.isJobCancelled(id) {
 		return
 	}

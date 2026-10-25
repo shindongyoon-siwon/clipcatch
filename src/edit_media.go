@@ -20,6 +20,18 @@ import (
 )
 
 type editStream struct {
+	Profile    string `json:"profile"`
+	Rate       string `json:"r_frame_rate"`
+	SAR        string `json:"sample_aspect_ratio"`
+	Primaries  string `json:"color_primaries"`
+	Range      string `json:"color_range"`
+	SampleRate string `json:"sample_rate"`
+	Channels   int    `json:"channels"`
+	FieldOrder string `json:"field_order"`
+	SideData   []struct {
+		Rotation float64 `json:"rotation"`
+		Type     string  `json:"side_data_type"`
+	} `json:"side_data_list"`
 	Index       int    `json:"index"`
 	Codec       string `json:"codec_name"`
 	Type        string `json:"codec_type"`
@@ -41,6 +53,9 @@ type editMedia struct {
 	} `json:"format"`
 }
 type editPlan struct {
+	Force         bool
+	FPS           string
+	Rotated       bool
 	Video         editStream
 	Audio         []editStream
 	CopyVideo     bool
@@ -90,7 +105,7 @@ func inspectEditMedia(parent context.Context, ffmpeg, path string) (editMedia, e
 	defer cancel()
 	out := &cappedBuffer{Limit: 1 << 20}
 	errout := &cappedBuffer{Limit: 4096}
-	cmd := exec.CommandContext(ctx, editProbePath(ffmpeg), "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "stream=index,codec_type,codec_name,pix_fmt,width,height,color_transfer,color_space,avg_frame_rate:stream_disposition=attached_pic:format=format_name,duration", "-of", "json", path)
+	cmd := exec.CommandContext(ctx, editProbePath(ffmpeg), "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "stream=index,codec_type,codec_name,pix_fmt,width,height,color_transfer,color_space,color_primaries,color_range,avg_frame_rate,r_frame_rate,sample_aspect_ratio,field_order,profile,sample_rate,channels:stream_side_data=rotation,side_data_type:stream_disposition=attached_pic:format=format_name,duration", "-of", "json", path)
 	cmd.Stdout = out
 	cmd.Stderr = errout
 	if e = cmd.Run(); e != nil {
@@ -117,21 +132,40 @@ func planEdit(info editMedia) (editPlan, error) {
 		}
 		if s.Type == "audio" {
 			p.Audio = append(p.Audio, s)
-			p.CopyAudio = append(p.CopyAudio, s.Codec == "aac")
+			p.CopyAudio = append(p.CopyAudio, s.Codec == "aac" && (s.Profile == "" || s.Profile == "LC"))
 		}
 	}
 	if !found || p.Video.Width <= 0 || p.Video.Height <= 0 {
 		return p, errors.New("edit-no-video")
 	}
 	// Do not silently flatten HDR/Dolby or wide-gamut content to 8-bit SDR.
-	if p.Video.Transfer == "smpte2084" || p.Video.Transfer == "arib-std-b67" || strings.HasPrefix(p.Video.ColorSpace, "bt2020") {
+	if p.Video.Transfer == "smpte2084" || p.Video.Transfer == "arib-std-b67" || strings.HasPrefix(p.Video.ColorSpace, "bt2020") || strings.HasPrefix(p.Video.Primaries, "bt2020") || p.Video.Primaries == "smpte432" || p.Video.Primaries == "smpte431" {
 		return p, errors.New("edit-hdr")
 	}
 	if p.Video.Width > 8192 || p.Video.Height > 8192 || len(p.Audio) > 16 {
 		return p, errors.New("edit-limit")
 	}
-	p.CopyVideo = p.Video.Codec == "h264" && p.Video.Pixel == "yuv420p"
+	p.CopyVideo = p.Video.Codec == "h264" && p.Video.Pixel == "yuv420p" && p.Video.Range != "pc" && (p.Video.Profile == "" || p.Video.Profile == "High" || p.Video.Profile == "Main" || p.Video.Profile == "Constrained Baseline" || p.Video.Profile == "Baseline")
+	if p.Video.FieldOrder != "" && p.Video.FieldOrder != "unknown" && p.Video.FieldOrder != "progressive" {
+		return p, errors.New("edit-interlaced")
+	}
+	for _, side := range p.Video.SideData {
+		if side.Type == "DOVI configuration record" {
+			return p, errors.New("edit-hdr")
+		}
+	}
+	rotation, err := editRotation(p.Video)
+	if err != nil {
+		return p, err
+	}
+	p.Rotated = rotation != 0
+	if p.Rotated {
+		p.CopyVideo = false
+	}
 	p.Width, p.Height = p.Video.Width, p.Video.Height
+	if rotation == 90 || rotation == 270 {
+		p.Width, p.Height = p.Height, p.Width
+	}
 	if !p.CopyVideo {
 		p.Strategy = "video"
 		p.Width += (p.Width % 2)
@@ -157,7 +191,11 @@ func editFFmpegArgs(source, dest string, p editPlan) []string {
 	for _, s := range p.Audio {
 		args = append(args, "-map", fmt.Sprintf("0:%d", s.Index))
 	}
-	args = append(args, "-map_metadata", "0", "-map_chapters", "0", "-sn", "-dn")
+	metadata := "0"
+	if p.Force {
+		metadata = "-1"
+	}
+	args = append(args, "-map_metadata", metadata, "-map_chapters", "-1", "-sn", "-dn")
 	if p.CopyVideo {
 		args = append(args, "-c:v", "copy")
 	} else {
@@ -168,18 +206,24 @@ func editFFmpegArgs(source, dest string, p editPlan) []string {
 		if threads < 1 {
 			threads = 1
 		}
-		args = append(args, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", strconv.Itoa(threads), "-fps_mode", "passthrough")
+		args = append(args, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-threads", strconv.Itoa(threads), "-fps_mode", "passthrough", "-profile:v", "high", "-tag:v", "avc1", "-metadata:s:v:0", "rotate=0")
 		// Padding at most one edge pixel avoids downscaling an odd-sized source.
-		if p.Width != p.Video.Width || p.Height != p.Video.Height {
-			args = append(args, "-vf", fmt.Sprintf("pad=%d:%d:0:0", p.Width, p.Height))
+		filters := []string{fmt.Sprintf("pad=%d:%d:0:0", p.Width, p.Height)}
+		if p.Video.Range == "pc" {
+			filters = append(filters, "scale=in_range=full:out_range=tv")
 		}
+		if p.Force {
+			filters = append(filters, "fps="+p.FPS)
+			args = append(args, "-fps_mode", "cfr", "-video_track_timescale", "120000")
+		}
+		args = append(args, "-vf", strings.Join(filters, ","))
 	}
 	for i, copyAudio := range p.CopyAudio {
 		stream := strconv.Itoa(i)
 		if copyAudio {
 			args = append(args, "-c:a:"+stream, "copy")
 		} else {
-			args = append(args, "-c:a:"+stream, "aac", "-b:a:"+stream, "192k", "-ar:a:"+stream, "48000")
+			args = append(args, "-c:a:"+stream, "aac", "-b:a:"+stream, "192k", "-ar:a:"+stream, "48000", "-profile:a:"+stream, "aac_low")
 		}
 	}
 	return append(args, "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", "-f", "mp4", dest)
@@ -269,7 +313,7 @@ func publishEditCopy(ctx context.Context, temp, folder, source string) (string, 
 	}
 	return "", errors.New("edit-storage")
 }
-func makeEditCopy(ctx context.Context, ffmpeg, source, folder, work string, progress func(string, float64), process func(*exec.Cmd)) (editResult, error) {
+func makeEditCopy(ctx context.Context, ffmpeg, source, folder, work string, progress func(string, float64), process func(*exec.Cmd), force ...bool) (editResult, error) {
 	result := editResult{Original: source}
 	emit := func(stage string, pct float64) {
 		if progress != nil {
@@ -285,9 +329,19 @@ func makeEditCopy(ctx context.Context, ffmpeg, source, folder, work string, prog
 	if e != nil {
 		return result, e
 	}
+	if len(force) > 0 && force[0] {
+		plan, e = forceEditPlan(plan)
+		if e != nil {
+			return result, e
+		}
+	}
 	result.Strategy = plan.Strategy
 	result.Width, result.Height = plan.Width, plan.Height
 	if plan.Strategy == "remux" && editIsMP4(before, source) {
+		emit("decode", 99)
+		if e = verifyEditDecode(ctx, ffmpeg, source, process); e != nil {
+			return result, e
+		}
 		result.File = source
 		result.Strategy = "already"
 		emit("already", 100)
@@ -341,6 +395,15 @@ func makeEditCopy(ctx context.Context, ffmpeg, source, folder, work string, prog
 	}
 	if e = checkEditResult(before, after, plan); e != nil {
 		return result, e
+	}
+	emit("decode", 99)
+	if e = verifyEditDecode(ctx, ffmpeg, tempName, process); e != nil {
+		return result, e
+	}
+	if plan.Force {
+		if e = verifyConstantFrames(ctx, ffmpeg, tempName, plan.FPS); e != nil {
+			return result, e
+		}
 	}
 	result.File, e = publishEditCopy(ctx, tempName, folder, source)
 	return result, e

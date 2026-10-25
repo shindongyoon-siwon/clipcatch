@@ -14,6 +14,11 @@
   const note=document.createElement('p');note.className='premiere-note';note.id='outputModeNote';
   const feedback=document.createElement('div');feedback.id='premiereFeedback';feedback.className='premiere-result';feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');
   row.append(label,mode,choose);panel.append(row,note,feedback);
+  const repair=document.createElement('button');repair.type='button';repair.id='repairPremiere';repair.textContent='\ud504\ub9ac\ubbf8\uc5b4\uc5d0\uc11c \uc548 \uc5f4\ub9b4 \ub54c';row.append(repair);
+  repair.onclick=async()=>{
+    if(!confirm('\ud638\ud658\uc131 \uc6b0\uc120 \uc0ac\ubcf8\uc744 \ub9cc\ub4e4\uae4c? \uace0\uc815 \ud504\ub808\uc784 H.264/AAC\ub85c \uc7ac\uc555\ucd95\ud558\ubbc0\ub85c \uc2dc\uac04\uc774 \uac78\ub9ac\uace0 \ud654\uc9c8\uacfc \ud504\ub808\uc784\uc774 \uc870\uae08 \ub2ec\ub77c\uc9c8 \uc218 \uc788\uc5b4. \uc6d0\ubcf8\uc740 \ub0a8\uaca8.'))return;
+    repair.disabled=true;try{const r=await post('/api/premiere/choose',{safe:true});tell((r.items||[]).filter(x=>!x.error).length+'\uac1c \ud638\ud658\uc131 \uc7ac\ubcc0\ud658 \ub300\uae30');await poll();}catch(e){tell(e.message,true);}finally{repair.disabled=false;}
+  };
   const target=el('downloadBtn')?.closest('.action-row');if(target)target.before(panel);else document.querySelector('main')?.prepend(panel);
   let saving=false,choosing=false;
   const tell=(text,error=false)=>{feedback.textContent=text;feedback.classList.toggle('error',error);};
@@ -40,16 +45,27 @@
     if(j.stage==='converting'){const status=card.querySelector('.job-status');if(status)status.textContent='MP4 변환 중';const cancel=card.querySelector('.job-cancel');if(cancel)cancel.textContent='변환 취소';}
     if(j.task==='convert' && !j.url){const link=card.querySelector('.job-url');if(link)link.textContent='PC에 저장된 영상 · 원본 보존';}
     if(j.task==='convert'||j.original_file){for(const btn of card.querySelectorAll('.retry-btn')){if(btn.textContent==='이 링크 재시도')btn.remove();}}
-    if((j.file||j.original_file)&&!j.edit_ready&&['done','error','cancelled'].includes(j.status)){
+    if(j.task!=='quality'&&j.task!=='quality-engine'&&(j.file||j.original_file)&&!j.edit_ready&&['done','error','cancelled'].includes(j.status)){
       let actions=card.querySelector('.job-actions');if(!actions){actions=document.createElement('div');actions.className='job-actions';card.append(actions);}
       const btn=document.createElement('button');btn.className='premiere-convert';btn.type='button';btn.textContent='편집용 MP4 만들기';
-      btn.addEventListener('click',async()=>{btn.disabled=true;try{await post('/api/premiere/convert',{id:j.id});tell('다시 다운로드하지 않고 MP4 사본을 만들게.');await poll();}catch(e){tell(e.message,true);btn.disabled=false;}});
+      btn.addEventListener('click',async()=>{btn.disabled=true;try{const result=await post('/api/premiere/convert',{id:j.id});if(result.items){const failed=result.items.filter(x=>x.error);tell((result.items.length-failed.length)+'\uac1c \ubcc0\ud658 \ub300\uae30\uc5f4\uc5d0 \ucd94\uac00'+(failed.length?' \u00b7 '+failed.length+'\uac1c \ud655\uc778 \ud544\uc694':''),!!failed.length);}else tell('다시 다운로드하지 않고 MP4 사본을 만들게.');await poll();}catch(e){tell(e.message,true);btn.disabled=false;}});
       actions.append(btn);
+    }
+    if(j.media?.length>1){
+      const box=document.createElement('details');box.className='post-files';
+      const summary=document.createElement('summary');summary.textContent='\uc800\uc7a5\ub41c \uc601\uc0c1 '+j.media.length+'\uac1c \ubcf4\uae30';box.append(summary);
+      for(const [i,m] of j.media.entries()){
+        const line=document.createElement('div');line.style.cssText='font-size:12px;overflow-wrap:anywhere;margin:7px 0';
+        const name=(m.file||m.original||'').split(/[\\/]/).pop();
+        line.textContent=(i+1)+'. '+name+' \u00b7 '+(m.error?m.error:m.edit_ready?'MP4 \uc900\ube44 \uc644\ub8cc':'\uc6d0\ubcf8 \uc800\uc7a5');
+        box.append(line);
+      }
+      card.append(box);
     }
     return card;
   };
   const oldSignature=jobSignature;
-  jobSignature=jobs=>oldSignature(jobs)+JSON.stringify(jobs.map(j=>[j.stage,j.original_file,j.edit_ready,j.task]));
+  jobSignature=jobs=>oldSignature(jobs)+JSON.stringify(jobs.map(j=>[j.stage,j.original_file,j.edit_ready,j.task,j.media,j.download_incomplete]));
   const oldRender=render;
   render=function(st){oldRender(st);if(st){if(!saving)mode.value=st.output_mode||'premiere';choose.disabled=choosing||st.phase!=='ready';explain();}};
   lastRecentHistorySignature='';lastOlderHistorySignature='';

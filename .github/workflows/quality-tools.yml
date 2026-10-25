@@ -1,0 +1,52 @@
+name: Quality tools and Premiere repair
+on:
+  pull_request:
+    branches: [main]
+    paths: ['src/**','tests/**','.github/workflows/quality-tools.yml']
+permissions:
+  contents: read
+concurrency:
+  group: quality-tools-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality-media:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache: false
+      - name: Install fixture tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y ffmpeg mesa-vulkan-drivers libvulkan1
+      - name: Pinned official AI binary and model
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/quality-engine"
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' \
+            https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip -o "$RUNNER_TEMP/quality-engine/engine.zip"
+          echo "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96  $RUNNER_TEMP/quality-engine/engine.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/quality-engine/engine.zip" -d "$RUNNER_TEMP/quality-engine/bin"
+          ENGINE="$(find "$RUNNER_TEMP/quality-engine/bin" -name realesrgan-ncnn-vulkan -type f | head -n 1)"
+          chmod +x "$ENGINE"
+          echo "CLIPCATCH_AI_ENGINE_TEST=$ENGINE" >> "$GITHUB_ENV"
+      - name: Actual image and multi-frame video inference and audio preservation
+        working-directory: src
+        env:
+          CLIPCATCH_QUALITY_TEST: '1'
+          CLIPCATCH_EDIT_MEDIA_TEST: '1'
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -v ./... | tee ../quality-tests.log
+          go vet ./...
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-tools-test-evidence
+          path: quality-tests.log
+          retention-days: 7
