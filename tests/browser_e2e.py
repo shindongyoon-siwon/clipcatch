@@ -18,8 +18,8 @@ with tempfile.TemporaryDirectory() as d:
             browser=p.chromium.launch_persistent_context(str(pathlib.Path(d)/'profile'),executable_path=os.environ.get('CLIPCATCH_CHROMIUM') or shutil.which('chromium'),channel='chromium',headless=True,args=['--no-sandbox','--disable-extensions-except='+str(ext),'--load-extension='+str(ext)])
             errors=[]
             app=browser.new_page();app.on('pageerror',lambda e:errors.append(str(e)))
-            app.goto(base);app.wait_for_selector('#browserLinkPanel')
-            app.locator('#browserLinkPanel summary').click()
+            app.goto(base);app.locator('#navExtension').click()
+            app.locator('#browserLinkPanel').wait_for(state='visible')
             app.locator('#makeBrowserCode').click()
             expect(app.locator("#browserPairCode")).to_have_value(re.compile("#"))
             code=app.locator('#browserPairCode').input_value()
@@ -39,12 +39,14 @@ with tempfile.TemporaryDirectory() as d:
             # Exercise actual service-worker -> localhost CORS and bearer validation.
             result=popup.evaluate("chrome.runtime.sendMessage({kind:'download',id:'abcdefghijk12',confirmed:true,silent:false})")
             assert result['ok'],result
+            app.locator('#navDownload').click()
             app.locator(".job.done").wait_for(state="attached",timeout=15000)
             href=app.locator('.job-url').first.get_attribute('href');assert 'utm_' not in href and '/comments/1x1rb7t/' in href,href
             app.evaluate("document.getElementById('browserCodeBox').hidden=true;document.getElementById('browserPairCode').value=''")
             out=root/'qa-output';out.mkdir(exist_ok=True)
             app.screenshot(path=str(out/'browser-app.png'),full_page=True)
             popup.evaluate("chrome.runtime.sendMessage({kind:'status'}).then(s=>{window.__qaState=s;})")
+            app.locator('#navExtension').click()
             app.locator('#revokeBrowserLink').click()
             reddit.bring_to_front()
             rejected=popup.evaluate("chrome.runtime.sendMessage({kind:'download',id:'abcdefghijk12',confirmed:true})")
