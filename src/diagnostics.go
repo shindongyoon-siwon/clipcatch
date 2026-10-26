@@ -201,22 +201,101 @@ func buildDiagnosticReport(st ClientState) string {
 	}
 	codeCount := 0
 	for _, j := range st.Jobs {
+		if j == nil {
+			continue
+		}
 		if j.Status == "error" && j.ErrorCode != "" {
 			if codeCount >= 8 {
 				break
 			}
 			lines = append(lines, "최근 오류: "+safeErrorCode(j.ErrorCode))
+			if j.DownloadIncomplete {
+				lines = append(lines, "다운로드 상태: 일부 다운로드 미완료")
+			}
+			if len(j.Media) > 0 {
+				ready := 0
+				for _, item := range j.Media {
+					if item.Error == "" && item.ErrorCode == "" && item.File != "" {
+						ready++
+					}
+				}
+				lines = append(lines, "파일 처리 요약: "+intString(ready)+"/"+intString(len(j.Media))+"개 완료")
+				shown, failures := 0, 0
+				for i, item := range j.Media {
+					if item.Error == "" && item.ErrorCode == "" {
+						continue
+					}
+					failures++
+					if shown < 8 {
+						code, message := safePostMediaDiagnostic(item)
+						lines = append(lines, "파일 오류 "+intString(i+1)+": "+code+" · "+message)
+						shown++
+					}
+				}
+				if failures > shown {
+					lines = append(lines, "추가 파일 오류: "+intString(failures-shown)+"개")
+				}
+			}
 			codeCount++
 		}
 	}
 	return strings.Join(lines, "\n")
 }
 func safeErrorCode(code string) string {
+	if _, ok := postMediaErrorMessages[code]; ok {
+		return code
+	}
 	switch code {
-	case "CC-101", "CC-102", "CC-103", "CC-104", "CC-105", "CC-106", "CC-107", "CC-108", "CC-109", "CC-199", "CC-201", "CC-312", "CC-313", "CC-314", "CC-315":
+	case "CC-101", "CC-102", "CC-103", "CC-104", "CC-105", "CC-106", "CC-107", "CC-108", "CC-109", "CC-199", "CC-201", "CC-312", "CC-313", "CC-314", "CC-315", "CC-401", "CC-402", "CC-421":
 		return code
 	}
 	return "CC-199"
+}
+func isDownloadErrorCode(code string) bool {
+	switch code {
+	case "CC-101", "CC-102", "CC-103", "CC-104", "CC-105", "CC-106", "CC-107", "CC-108", "CC-109", "CC-199", "CC-201":
+		return true
+	}
+	return false
+}
+
+func safePostMediaDiagnostic(item savedPostMedia) (string, string) {
+	if message, ok := postMediaErrorMessages[item.ErrorCode]; ok {
+		return item.ErrorCode, message
+	}
+	// Old history has only Error text. Match exact known messages; never copy a
+	// user-provided/legacy message into the report or infer from substrings.
+	code := "CC-421-UNKNOWN"
+	for known, message := range postMediaErrorMessages {
+		if item.Error == message {
+			return known, message
+		}
+	}
+	switch item.Error {
+	case "저장 파일 경로·형식 확인 필요":
+		code = "CC-421-SOURCE"
+	case "영상 형식 검사 실패", "영상 형식을 확인하지 못했어. FFmpeg/FFprobe 도구와 원본 파일을 확인해 줘.":
+		code = "CC-421-PROBE"
+	case "HDR 영상은 색상 변형을 피하기 위해 자동 변환하지 않았어. 원본 파일은 보존돼.":
+		code = "CC-421-HDR"
+	case "영상이나 음성에 손상 가능성이 있어. 원본을 다시 받아 줘.":
+		code = "CC-421-DECODE"
+	case "프레임·회전·인터레이스 형식을 안전하게 변환할 수 없어. 원본은 보존돼.":
+		code = "CC-421-STRUCTURE"
+	case "원본 영상 파일을 찾거나 읽을 수 없어.":
+		code = "CC-421-READ"
+	case "파일에 변환할 영상이 없어.":
+		code = "CC-421-NO-VIDEO"
+	case "MP4 저장에 실패했어. 디스크 용량·저장 권한을 확인해 줘. 원본은 보존돼.":
+		code = "CC-421-STORAGE"
+	case "영상 트랙이 여러 개인 파일은 자동 변환하지 않았어. 원본은 보존돼.":
+		code = "CC-421-MULTI-TRACK"
+	case "자동 변환 크기나 트랙 수 범위를 넘었어. 원본은 보존돼.":
+		code = "CC-421-LIMIT"
+	case "MP4 변환·검증에 실패했어. 완료로 처리하지 않았고 원본은 보존했어.":
+		code = "CC-421-MP4"
+	}
+	return code, postMediaErrorMessages[code]
 }
 func safeCheckName(name string) string {
 	switch name {

@@ -602,10 +602,12 @@ func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool
 	}
 	args := []string{
 		"--ignore-config", "--no-playlist", "--newline", "--progress",
+		"--encoding", "utf-8",
 		"--concurrent-fragments", "2",
 		"--progress-template", "download:CLIP_PROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
-		"--print", "before_dl:CLIP_TITLE|%(title)s",
-		"--print", "after_move:CLIP_FILE|%(filepath)s",
+		// JSON's ASCII escapes preserve Windows paths and multiline titles across pipes.
+		"--print", "before_dl:CLIP_TITLE_JSON|%(title)j",
+		"--print", "after_move:CLIP_FILE_JSON|%(filepath)j",
 		"--retries", retries, "--fragment-retries", fragmentRetries, "--socket-timeout", "30",
 		"--merge-output-format", "mp4/mkv", "-f", "bv*+ba/b",
 		"-P", a.downloadRoot(j),
@@ -715,8 +717,32 @@ func (a *App) runDownload(id string) {
 		a.runQualityTask(ctx, id, j)
 		return
 	}
-	if j.Task == "convert" || (j.OutputMode == premiereMode && nonempty(j.OriginalFile) && !j.DownloadIncomplete) {
+	retryConversion := j.OutputMode == premiereMode && nonempty(j.OriginalFile) && !j.DownloadIncomplete
+	if retryConversion {
+		for _, media := range j.Media {
+			if !nonempty(media.Original) {
+				retryConversion = false
+				break
+			}
+		}
+	}
+	if j.Task == "convert" || retryConversion {
 		a.finishPremiere(id, ctx)
+		return
+	}
+	// A new download rebuilds metadata from this invocation's output. Old
+	// locale-damaged paths must not survive a manual retry. Keep the workspace
+	// and files so yt-dlp can reuse existing downloads/parts; automatic network
+	// retries below share this fresh list and retain anything already received.
+	a.mutateJob(id, func(job *Job) {
+		job.File, job.OriginalFile, job.Stage = "", "", ""
+		job.Media = nil
+		job.MediaOverflow, job.DownloadIncomplete, job.EditReady = false, false, false
+		job.ErrorCode, job.ErrorTitle, job.ErrorAdvice = "", "", ""
+		job.AuthRequired = false
+	})
+	j = a.getJob(id)
+	if j == nil || j.Status == "cancelled" || ctx.Err() != nil {
 		return
 	}
 	if err := a.prepareManagedDownload(j); err != nil {
@@ -909,6 +935,22 @@ func (a *App) parseOutput(id, line string) {
 		return
 	}
 	line = strings.TrimSpace(line)
+	// Decode only a complete metadata record. Do not interpret marker-like text
+	// inside a title or fall back to a plain path when JSON decoding fails.
+	if payload, ok := strings.CutPrefix(line, "CLIP_TITLE_JSON|"); ok {
+		var title string
+		if json.Unmarshal([]byte(payload), &title) == nil && title != "" {
+			a.mutateJob(id, func(j *Job) { j.Title = title })
+		}
+		return
+	}
+	if payload, ok := strings.CutPrefix(line, "CLIP_FILE_JSON|"); ok {
+		var file string
+		if json.Unmarshal([]byte(payload), &file) == nil && file != "" {
+			a.recordPostFile(id, file)
+		}
+		return
+	}
 	if idx := strings.Index(line, "CLIP_PROGRESS|"); idx >= 0 {
 		fields := strings.SplitN(line[idx+len("CLIP_PROGRESS|"):], "|", 3)
 		if len(fields) > 0 {
