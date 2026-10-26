@@ -54,7 +54,7 @@ jobs:
               for member in entries:
                   name=PurePosixPath(member.filename)
                   assert not name.is_absolute() and '..' not in name.parts
-                  assert name.parts[0] in ('src','tests','docs')
+                  assert name.parts[0] in ('src','tests','docs') or member.filename == 'TEST5.txt'
                   assert not stat.S_ISLNK(member.external_attr >> 16)
               z.extractall(folder)
           assert (folder/'src/main.go').is_file() and (folder/'src/trial_runtime.go').is_file()
