@@ -2,12 +2,15 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -82,7 +85,7 @@ func qualityDownloadAllowed(raw string) bool {
 func downloadQualityEngine(ctx context.Context, target string) error {
 	client := &http.Client{Timeout: 5 * time.Minute, CheckRedirect: func(r *http.Request, via []*http.Request) error {
 		if len(via) > 4 || !qualityDownloadAllowed(r.URL.String()) {
-			return errors.New("quality-download")
+			return errors.New("quality-download-redirect")
 		}
 		return nil
 	}}
@@ -90,13 +93,24 @@ func downloadQualityEngine(ctx context.Context, target string) error {
 	if e != nil {
 		return e
 	}
+	req.Header.Set("User-Agent", "ClipCatch-Test2/"+appVersion)
 	resp, e := client.Do(req)
 	if e != nil {
-		return errors.New("quality-download")
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		var ne net.Error
+		if errors.As(e, &ne) && ne.Timeout() {
+			return errors.New("quality-download-timeout")
+		}
+		return errors.New("quality-download-network")
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 || resp.ContentLength > 64<<20 {
-		return errors.New("quality-download")
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("quality-download-http-%d", resp.StatusCode)
+	}
+	if resp.ContentLength > 64<<20 {
+		return errors.New("quality-archive")
 	}
 	f, e := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if e != nil {
@@ -113,6 +127,36 @@ func downloadQualityEngine(ctx context.Context, target string) error {
 	}
 	return nil
 }
+
+// The ClipCatch Windows EXE embeds the official archive. User consent still
+// controls unpacking. This path makes zero HTTP requests and never falls back
+// to an unverified mirror or modifies browser/Windows security settings.
+func obtainQualityArchive(ctx context.Context, target string) error {
+	if e := ctx.Err(); e != nil {
+		return e
+	}
+	if len(bundledQualityEngine) == 0 {
+		return downloadQualityEngine(ctx, target)
+	}
+	if len(bundledQualityEngine) > 64<<20 {
+		return errors.New("quality-archive")
+	}
+	got := sha256.Sum256(bundledQualityEngine)
+	if hex.EncodeToString(got[:]) != qualityEngineSHA {
+		return errors.New("quality-integrity")
+	}
+	f, e := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if e != nil {
+		return errors.New("quality-disk")
+	}
+	_, e = io.Copy(f, bytes.NewReader(bundledQualityEngine))
+	ce := f.Close()
+	if e != nil || ce != nil {
+		return errors.New("quality-disk")
+	}
+	return ctx.Err()
+}
+
 func extractQualityEngine(archive, dest string) error {
 	z, e := zip.OpenReader(archive)
 	if e != nil {
@@ -198,6 +242,11 @@ func installQualityEngine(ctx context.Context, data string) error {
 	if runtime.GOOS != "windows" {
 		return errors.New("quality-windows")
 	}
+	return prepareQualityEngine(ctx, data)
+}
+
+// Extracts an integrity-checked bundle without executing its Windows binary.
+func prepareQualityEngine(ctx context.Context, data string) error {
 	if _, e := verifyQualityEngine(data); e == nil {
 		return nil
 	}
@@ -211,11 +260,14 @@ func installQualityEngine(ctx context.Context, data string) error {
 	}
 	defer os.RemoveAll(work)
 	archive := filepath.Join(work, "engine.zip")
-	if e = downloadQualityEngine(ctx, archive); e != nil {
+	if e = obtainQualityArchive(ctx, archive); e != nil {
 		return e
 	}
 	prepared := filepath.Join(work, qualityEngineVersion)
 	if e = extractQualityEngine(archive, prepared); e != nil {
+		if _, ok := e.(*os.PathError); ok {
+			return errors.New("quality-disk")
+		}
 		return e
 	}
 	final := filepath.Dir(qualityEnginePath(data))

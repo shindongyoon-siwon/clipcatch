@@ -1,4 +1,14 @@
-# ClipCatch v1.9.0
+# ClipCatch v1.9.1
+
+## ClipCatch v1.9.1 (stable)
+
+- Promoted verified TEST2 1.9.1-test.5 behavior into stable ClipCatch.
+- New-version update dialog preserves active jobs; new jobs wait for update. Offline check failure does not lock use.
+- Private temporary workspaces publish only verified MP4 and clean only on success; failed sources and existing user originals remain preserved.
+- Compatible MP4 files are byte-copied, otherwise lossy transcoding may be needed.
+- Browser extension identifies build mismatch and offers reload; stable channel pairing and Chrome identity retained.
+- TEST2 remains an independent prerelease; no server data modified.
+
 
 ## Premiere safety and optional local quality tools
 

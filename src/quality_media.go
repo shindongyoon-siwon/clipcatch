@@ -29,15 +29,17 @@ type qualityOptions struct {
 	Seconds  float64 `json:"seconds"`
 }
 type qualitySource struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Kind     string  `json:"kind"`
-	Width    int     `json:"width"`
-	Height   int     `json:"height"`
-	Duration float64 `json:"duration"`
-	Path     string  `json:"-"`
-	Size     int64   `json:"-"`
-	Stamp    int64   `json:"-"`
+	ID               string  `json:"id"`
+	Name             string  `json:"name"`
+	Kind             string  `json:"kind"`
+	Width            int     `json:"width"`
+	Height           int     `json:"height"`
+	Duration         float64 `json:"duration"`
+	GeometryAdjusted bool    `json:"geometry_adjusted,omitempty"`
+	PixelAspect      string  `json:"pixel_aspect,omitempty"`
+	Path             string  `json:"-"`
+	Size             int64   `json:"-"`
+	Stamp            int64   `json:"-"`
 }
 type qualityTask struct {
 	Options qualityOptions `json:"options"`
@@ -83,14 +85,11 @@ func describeQualitySource(ctx context.Context, ff, path string) (qualitySource,
 			return q, errors.New("quality-image-format")
 		}
 	}
-	if plan.Video.SAR != "" && plan.Video.SAR != "N/A" && plan.Video.SAR != "0:1" && plan.Video.SAR != "1:1" {
-		return q, errors.New("quality-aspect")
+	q.Width, q.Height, q.GeometryAdjusted, e = qualityDisplayGeometry(plan.Video, q.Kind == "video")
+	if e != nil {
+		return q, e
 	}
-	q.Width, q.Height = plan.Video.Width, plan.Video.Height
-	rot, _ := editRotation(plan.Video)
-	if rot == 90 || rot == 270 {
-		q.Width, q.Height = q.Height, q.Width
-	}
+	q.PixelAspect = plan.Video.SAR
 	q.Duration, _ = strconv.ParseFloat(info.Format.Duration, 64)
 	if q.Kind == "video" && (q.Duration <= 0 || math.IsInf(q.Duration, 0) || math.IsNaN(q.Duration)) {
 		return q, errors.New("quality-duration")
@@ -106,11 +105,17 @@ func validateQualityOptions(q qualitySource, o qualityOptions) error {
 	if o.Mode != "resize" && o.Mode != "ai" {
 		return errors.New("quality-options")
 	}
-	if o.Scale != 2 && o.Scale != 4 {
+	if o.Scale != 1 && o.Scale != 2 && o.Scale != 4 {
 		return errors.New("quality-options")
 	}
-	if math.IsNaN(o.Strength) || math.IsInf(o.Strength, 0) || (o.Mode == "ai" && o.Strength != .35 && o.Strength != .65) {
+	if math.IsNaN(o.Strength) || math.IsInf(o.Strength, 0) || (o.Mode == "ai" && o.Strength != .35 && o.Strength != .65 && o.Strength != 1) {
 		return errors.New("quality-options")
+	}
+	if o.Mode == "ai" && (q.Width > 2048 || q.Height > 2048 || int64(q.Width)*int64(q.Height) > 3000000) {
+		return errors.New("quality-ai-source-size")
+	}
+	if q.Kind == "video" && o.Scale == 1 && (q.Width%2 != 0 || q.Height%2 != 0) {
+		return errors.New("quality-size")
 	}
 	w, h := q.Width*o.Scale, q.Height*o.Scale
 	if w < 1 || h < 1 || w > 4096 || h > 4096 || int64(w)*int64(h) > 9000000 {
@@ -128,7 +133,7 @@ func sameQualitySource(q qualitySource) bool {
 	return e == nil && st.Size() == q.Size && st.ModTime().UnixNano() == q.Stamp
 }
 func qualityRun(ctx context.Context, bin string, args []string, process func(*exec.Cmd)) error {
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := hiddenCommandContext(ctx, bin, args...)
 	cmd.Stderr = &cappedBuffer{Limit: 8192}
 	cmd.Stdout = &cappedBuffer{Limit: 4096}
 	if e := cmd.Start(); e != nil {
@@ -292,14 +297,14 @@ func renderQualityVideo(ctx context.Context, ff, engine string, q qualitySource,
 	}
 	// Decode once, process small batches, and stream PNGs to one encoder. No full
 	// video frame dump: at most four native and four AI frames are held on disk.
-	decode := exec.CommandContext(ctx, ff, "-v", "error", "-xerror", "-nostdin", "-threads", "2", "-protocol_whitelist", "file,pipe", "-ss", start, "-i", q.Path, "-t", duration, "-vf", fmt.Sprintf("scale=%d:%d,setsar=1,fps=%s", q.Width, q.Height, fps), "-an", "-sn", "-dn", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1")
+	decode := hiddenCommandContext(ctx, ff, "-v", "error", "-xerror", "-nostdin", "-threads", "2", "-protocol_whitelist", "file,pipe", "-ss", start, "-i", q.Path, "-t", duration, "-vf", fmt.Sprintf("scale=%d:%d:flags=lanczos,setsar=1,fps=%s", q.Width, q.Height, fps), "-an", "-sn", "-dn", "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1")
 	reader, e := decode.StdoutPipe()
 	if e != nil {
 		return e
 	}
 	decode.Stderr = &cappedBuffer{Limit: 8192}
 	args := []string{"-v", "error", "-xerror", "-nostdin", "-y", "-threads", "2", "-f", "image2pipe", "-vcodec", "png", "-framerate", fps, "-i", "pipe:0", "-protocol_whitelist", "file,pipe", "-ss", start, "-i", q.Path, "-map", "0:v:0", "-map", "1:a?", "-t", duration, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-profile:v", "high", "-threads", "4", "-fps_mode", "cfr", "-c:a", "aac", "-profile:a", "aac_low", "-ar", "48000", "-b:a", "192k", "-map_metadata", "-1", "-map_chapters", "-1", "-movflags", "+faststart", "-video_track_timescale", "120000", dest}
-	encode := exec.CommandContext(ctx, ff, args...)
+	encode := hiddenCommandContext(ctx, ff, args...)
 	writer, e := encode.StdinPipe()
 	if e != nil {
 		return e
@@ -442,7 +447,7 @@ func validateQualityOutput(ctx context.Context, ff, path string, q qualitySource
 		}
 		return n
 	}
-	if v.Codec != "h264" || v.Pixel != "yuv420p" || nAudio(before) != nAudio(info) {
+	if v.Codec != "h264" || v.Pixel != "yuv420p" || (v.SAR != "1:1" && v.SAR != "" && v.SAR != "N/A") || nAudio(before) != nAudio(info) {
 		return errors.New("quality-validation")
 	}
 	for _, s := range info.Streams {
@@ -534,4 +539,58 @@ func pngHasTransparency(path string) bool {
 }
 func qualitySourceStillSame(a, b qualitySource) bool {
 	return a.Path == b.Path && a.Size == b.Size && a.Stamp == b.Stamp
+}
+
+// Preserve the displayed aspect ratio: coded width * SAR, then apply rotation.
+// Round video dimensions to the nearest even number for H.264 4:2:0 (<=1px).
+// Merely changing the SAR tag would stretch anamorphic video, so both renderers
+// resample to these dimensions before resetting SAR to 1:1.
+func qualityDisplayGeometry(v editStream, video bool) (int, int, bool, error) {
+	if v.Width <= 0 || v.Height <= 0 {
+		return 0, 0, false, errors.New("quality-aspect")
+	}
+	ratio := 1.0
+	sar := strings.TrimSpace(v.SAR)
+	if sar != "" && sar != "N/A" && sar != "0:1" {
+		parts := strings.Split(sar, ":")
+		if len(parts) != 2 {
+			return 0, 0, false, errors.New("quality-aspect")
+		}
+		n, e1 := strconv.ParseUint(parts[0], 10, 32)
+		d, e2 := strconv.ParseUint(parts[1], 10, 32)
+		if e1 != nil || e2 != nil || n == 0 || d == 0 {
+			return 0, 0, false, errors.New("quality-aspect")
+		}
+		ratio = float64(n) / float64(d)
+		if ratio < 1.0/16 || ratio > 16 {
+			return 0, 0, false, errors.New("quality-aspect")
+		}
+	}
+	fw, fh := float64(v.Width)*ratio, float64(v.Height)
+	if fw > 32768 || fh > 32768 {
+		return 0, 0, false, errors.New("quality-size")
+	}
+	rot, e := editRotation(v)
+	if e != nil {
+		return 0, 0, false, e
+	}
+	if rot == 90 || rot == 270 {
+		fw, fh = fh, fw
+	}
+	w, h := int(math.Round(fw)), int(math.Round(fh))
+	adjusted := math.Abs(ratio-1) > .0000001
+	if video {
+		w, h = int(math.Round(fw/2))*2, int(math.Round(fh/2))*2
+		if w < 2 {
+			w = 2
+		}
+		if h < 2 {
+			h = 2
+		}
+		adjusted = adjusted || math.Abs(float64(w)-fw) > .01 || math.Abs(float64(h)-fh) > .01
+	}
+	if w < 1 || h < 1 {
+		return 0, 0, false, errors.New("quality-size")
+	}
+	return w, h, adjusted, nil
 }

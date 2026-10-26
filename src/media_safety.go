@@ -76,7 +76,7 @@ func verifyEditDecode(parent context.Context, ff, file string, process func(*exe
 	// Checks real video AND every audio stream, not just the file header.
 	ctx, cancel := context.WithTimeout(parent, 2*time.Hour)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, ff, "-hide_banner", "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode", "-threads", "2", "-protocol_whitelist", "file,pipe", "-i", file, "-map", "0:v:0", "-map", "0:a?", "-sn", "-dn", "-f", "null", "-")
+	cmd := hiddenCommandContext(ctx, ff, "-hide_banner", "-nostdin", "-v", "error", "-xerror", "-err_detect", "explode", "-threads", "2", "-protocol_whitelist", "file,pipe", "-i", file, "-map", "0:v:0", "-map", "0:a?", "-sn", "-dn", "-f", "null", "-")
 	cmd.Stderr = &cappedBuffer{Limit: 8192}
 	if err := cmd.Start(); err != nil {
 		return errors.New("edit-tools")
@@ -97,7 +97,7 @@ func verifyConstantFrames(parent context.Context, ff, file, fps string) error {
 	// Stream packet times: bound memory even for long recordings.
 	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, editProbePath(ff), "-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "v:0", "-show_entries", "packet=dts_time", "-of", "csv=p=0", file)
+	cmd := hiddenCommandContext(ctx, editProbePath(ff), "-v", "error", "-protocol_whitelist", "file,pipe", "-select_streams", "v:0", "-show_entries", "packet=dts_time", "-of", "csv=p=0", file)
 	pipe, err := cmd.StdoutPipe()
 	if err != nil {
 		return err

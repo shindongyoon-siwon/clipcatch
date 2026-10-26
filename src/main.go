@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.9.0"
+	appDefaultVersion = "1.9.1"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -45,6 +45,8 @@ var (
 )
 
 type Job struct {
+	DownloadDir        string           `json:"download_dir,omitempty"`
+	BrowserOwner       string           `json:"browser_owner,omitempty"`
 	Quality            *qualityTask     `json:"quality,omitempty"`
 	ForceCompatible    bool             `json:"force_compatible,omitempty"`
 	WholePost          bool             `json:"whole_post,omitempty"`
@@ -76,6 +78,7 @@ type Job struct {
 }
 
 type ClientState struct {
+	UpdateRequired  bool            `json:"update_required"`
 	OutputMode      string          `json:"output_mode"`
 	Version         string          `json:"version"`
 	Phase           string          `json:"phase"`
@@ -168,7 +171,7 @@ func (a *App) routes() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script><script src=\"/quality.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
+		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script><script src=\"/quality.js\"></script><script src=\"/workspace-tabs.js\"></script><script src=\"/startup-update.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
 	})
 	// Serve the app's distinctive tab icon from the executable (no extra files needed).
 	for _, asset := range []struct{ path, mediaType string }{
@@ -188,11 +191,12 @@ func (a *App) routes() {
 		})
 	}
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]string{"app": "clipcatch", "version": appVersion})
+		writeJSON(w, 200, map[string]string{"app": runtimeAppID(), "version": appVersion, "channel": appChannel})
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		state := a.state
+		state.UpdateRequired = a.updateRequiredLocked()
 		state.Jobs = make([]*Job, len(a.state.Jobs))
 		for i, j := range a.state.Jobs {
 			copyJob := cloneDownloadJob(j)
@@ -257,6 +261,24 @@ func (a *App) routes() {
 	})
 	a.premiereRoutes(mux)
 	a.qualityRoutes(mux)
+	mux.HandleFunc("GET /startup-update.js", func(w http.ResponseWriter, r *http.Request) {
+		b, e := pages.ReadFile("web/startup-update.js")
+		if e != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Write(b)
+	})
+	mux.HandleFunc("GET /workspace-tabs.js", func(w http.ResponseWriter, r *http.Request) {
+		b, e := pages.ReadFile("web/workspace-tabs.js")
+		if e != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write(b)
+	})
 	a.mux = mux
 }
 
@@ -296,6 +318,9 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 415, "JSON 형식만 받을 수 있습니다.")
 			return
 		}
+	}
+	if a.updateGateRequest(w, r) {
+		return
 	}
 	a.mux.ServeHTTP(w, r)
 }
@@ -379,6 +404,7 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 32768)
 	var req struct {
 		URLs            string `json:"urls"`
+		OutputMode      string `json:"output_mode,omitempty"`
 		AllowDuplicates bool   `json:"allow_duplicates"`
 	}
 	decoder := json.NewDecoder(r.Body)
@@ -386,6 +412,12 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := decoder.Decode(&req); err != nil {
 		writeError(w, 400, "링크를 읽지 못했습니다.")
 		return
+	}
+	if req.OutputMode != "" {
+		if _, ok := selectedOutputMode(req.OutputMode, premiereMode); !ok {
+			writeError(w, 400, "저장 형식을 확인해 주세요.")
+			return
+		}
 	}
 	matches := urlRE.FindAllString(req.URLs, -1)
 	if len(matches) == 0 {
@@ -412,11 +444,20 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.mu.Lock()
+	if a.newWorkBlockedLocked() {
+		a.mu.Unlock()
+		writeError(w, 409, "\uC5C5\uB370\uC774\uD2B8 \uC644\uB8CC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.")
+		return
+	}
+	owner, _ := r.Context().Value(browserOwnerContextKey{}).(string)
+	outputMode, _ := selectedOutputMode(req.OutputMode, a.state.OutputMode)
 	var duplicates []duplicateInfo
 	var pending int
+	var pendingIDs []string
 	for _, it := range inputs {
 		if a.hasQueuedDownloadLocked(it.key) {
 			pending++
+			pendingIDs = append(pendingIDs, a.ownedPendingBrowserJobs(it.key, owner)...)
 			continue
 		}
 		if duplicate, exists := a.existingDownloadLocked(it.key); exists && !req.AllowDuplicates {
@@ -442,9 +483,10 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 		a.created++
 		id := fmt.Sprintf("%d-%d", time.Now().UnixNano(), a.created)
 		a.state.Jobs = append([]*Job{{
-			WholePost:  isWholeVideoPost(it.u),
-			OutputMode: a.state.OutputMode,
-			ID:         id, URL: it.u, Host: it.h, Title: "제목 확인 중...", Status: "queued",
+			BrowserOwner: owner,
+			WholePost:    isWholeVideoPost(it.u),
+			OutputMode:   outputMode,
+			ID:           id, URL: it.u, Host: it.h, Title: "제목 확인 중...", Status: "queued",
 			Time: time.Now().Format("2006-01-02 15:04"), Detail: "다운로드 대기 중",
 			Redownload: isRedownload,
 		}}, a.state.Jobs...)
@@ -454,7 +496,7 @@ func (a *App) downloadHandler(w http.ResponseWriter, r *http.Request) {
 	for _, id := range added {
 		a.queue <- id
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "count": len(added), "skipped_pending": pending, "skipped_input": len(matches) - len(inputs)})
+	writeJSON(w, 200, map[string]any{"ok": true, "count": len(added), "job_ids": append(added, pendingIDs...), "skipped_pending": pending, "skipped_input": len(matches) - len(inputs)})
 }
 
 func (a *App) updateToolHandler(w http.ResponseWriter, r *http.Request) {
@@ -547,7 +589,7 @@ func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool
 		"--print", "after_move:CLIP_FILE|%(filepath)s",
 		"--retries", retries, "--fragment-retries", fragmentRetries, "--socket-timeout", "30",
 		"--merge-output-format", "mp4/mkv", "-f", "bv*+ba/b",
-		"-P", a.saveDir,
+		"-P", a.downloadRoot(j),
 		"-o", "%(title).120B [%(id)s].%(ext)s",
 	}
 	if j.Redownload {
@@ -660,6 +702,15 @@ func (a *App) runDownload(id string) {
 		a.finishPremiere(id, ctx)
 		return
 	}
+	if err := a.prepareManagedDownload(j); err != nil {
+		a.mutateJob(id, func(job *Job) {
+			job.Status = "error"
+			job.ErrorCode = "CC-402"
+			job.Detail = "MP4 temporary workspace unavailable"
+		})
+		return
+	}
+	defer a.finishManagedDownload(id)
 	if j.BrowserSource {
 		a.runBrowserJob(id, j)
 		return
@@ -786,7 +837,7 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 	if err := ctx.Err(); err != nil {
 		return err, "다운로드가 취소되었어."
 	}
-	cmd := exec.CommandContext(ctx, a.ytDlp, args...)
+	cmd := hiddenCommandContext(ctx, a.ytDlp, args...)
 	cmd.Stdin = nil
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -1229,11 +1280,11 @@ func openFolder(path string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("explorer.exe", path)
+		cmd = hiddenCommand("explorer.exe", path)
 	case "darwin":
-		cmd = exec.Command("open", path)
+		cmd = hiddenCommand("open", path)
 	default:
-		cmd = exec.Command("xdg-open", path)
+		cmd = hiddenCommand("xdg-open", path)
 	}
 	return cmd.Start()
 }
@@ -1244,11 +1295,11 @@ func openBrowser(addr string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", addr)
+		cmd = hiddenCommand("rundll32", "url.dll,FileProtocolHandler", addr)
 	case "darwin":
-		cmd = exec.Command("open", addr)
+		cmd = hiddenCommand("open", addr)
 	default:
-		cmd = exec.Command("xdg-open", addr)
+		cmd = hiddenCommand("xdg-open", addr)
 	}
 	_ = cmd.Start()
 }
@@ -1268,7 +1319,7 @@ func main() {
 	if runtime.GOOS == "windows" && os.Getenv("LOCALAPPDATA") != "" {
 		configBase = os.Getenv("LOCALAPPDATA")
 	}
-	dataDir := filepath.Join(configBase, appName)
+	dataDir := filepath.Join(configBase, runtimeDataName())
 	_ = os.MkdirAll(dataDir, 0755)
 	f, err := os.OpenFile(filepath.Join(dataDir, "clipcatch.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err == nil {
@@ -1281,24 +1332,30 @@ func main() {
 	if err != nil {
 		home = "."
 	}
-	savedir := filepath.Join(home, "Downloads", "ClipCatch")
-	if override := os.Getenv("CLIPCATCH_SAVEDIR"); override != "" {
-		savedir = override
-	}
+	savedir := runtimeSaveDir(home)
 
 	// On duplicate launch, reopen the existing instance instead of running twice.
 	client := &http.Client{Timeout: 1200 * time.Millisecond}
-	testURL := "http://127.0.0.1:8765/api/health"
+	baseURL := "http://127.0.0.1:" + runtimePort()
+	testURL := baseURL + "/api/health"
 	if resp, err := client.Get(testURL); err == nil {
 		var h map[string]string
 		_ = json.NewDecoder(resp.Body).Decode(&h)
 		_ = resp.Body.Close()
-		if h["app"] == "clipcatch" {
-			openBrowser("http://127.0.0.1:8765/")
+		if h["app"] == runtimeAppID() {
+			if isTrialBuild() && h["version"] != appVersion {
+				showInstallError("이전 테스트판이 실행 중입니다. 테스트판 화면에서 [종료]를 누른 후 다시 실행해 주세요.")
+				return
+			}
+			openBrowser(baseURL + "/")
 			return
 		}
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:8765")
+	listener, err := net.Listen("tcp", "127.0.0.1:"+runtimePort())
+	if err != nil && isTrialBuild() {
+		showInstallError("테스트판 연결 포트(18766)가 사용 중입니다. 이전 테스트판을 종료해 주세요. 정식판은 변경하지 않습니다.")
+		return
+	}
 	if err != nil {
 		listener, err = net.Listen("tcp", "127.0.0.1:0")
 	}

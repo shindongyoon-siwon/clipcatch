@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#10141c" />
-  <title>ClipCatch — 원본 영상 저장기</title>
+  <title>ClipCatch</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=__APP_VERSION__" />
   <style>
     :root{--bg:#0d1017;--panel:#171b25;--panel2:#1c222e;--edge:#2b3342;--text:#f3f5f7;--sub:#a2adbc;--muted:#727d8f;--lime:#d9ff57;--dark:#13191f;--red:#ff8e93;--r:22px;font-family:Pretendard,"Segoe UI","Noto Sans KR","Malgun Gothic",Arial,sans-serif}
@@ -105,9 +105,9 @@
     </header>
 
     <div class="hero">
-      <div class="eyebrow">HIGH QUALITY VIDEO DOWNLOADER</div>
+      <div class="eyebrow">CLIPCATCH</div>
       <h1>링크 하나로,<br/><em>원본 그대로 저장.</em></h1>
-      <p>레딧, X, 유튜브, 인스타그램 등 공개 영상을 주소만 붙여넣어 저장하세요.<br/>다른 사이트 로그인 정보는 읽지 않고, 프로그램 업데이트는 확인 후 버튼 한 번으로 설치할 수 있어요.</p>
+      <p>레딧, X, 유튜브, 인스타그램 등 공개 영상을 주소만 붙여넣어 저장하세요.<br/>다운로드한 영상과 설정은 내 PC에 보관됩니다.</p>
     </div>
 
 
@@ -123,27 +123,33 @@
           <textarea id="urlInput" class="urlbox" placeholder="https://x.com/username/status/123456789...&#10;https://www.reddit.com/r/..." autocomplete="off" spellcheck="false"></textarea>
           <button class="paste" id="pasteBtn" type="button" aria-label="클립보드에서 붙여넣기"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="4" width="12" height="16" rx="2"/><path d="M4 8v12a2 2 0 0 0 2 2h10"/></svg> 붙여넣기</button>
         </div>
-        <div class="info-line"><p>공개된 영상 링크를 넣어주세요. 플랫폼 정책상 일부 영상은 제한될 수 있어요.</p><span class="input-count" id="urlCount">0 / 10</span></div>
-        <div class="safe-note">회사 PC 보호 · Chrome 전체 로그인 정보 접근 없음 · 업데이트는 확인 후 설치</div>
+        <div class="info-line"><p>공개된 영상 링크를 넣어주세요. 플랫폼 정책상 일부 영상은 제한될 수 있습니다.</p><span class="input-count" id="urlCount">0 / 10</span></div>
+        <div class="safe-note">이 PC에서 처리 · 정식판 변경 없음</div>
 
 <details id="browserLinkPanel" class="reddit-auth">
-<summary>유튜브·인스타·X·Reddit · 브라우저에서 바로 다운로드</summary>
-<p>원하는 영상 게시물에서 크롬 퍼즐 모양(🧩) → <b>ClipCatch Browser</b> → [현재 영상 다운로드]를 누르면 돼. Reddit은 다운로드가 실패할 때만 [재생 영상 찾기] 기능을 사용해. 비밀번호·쿠키는 읽지 않아.</p>
-<p>최초 한 번: [확장프로그램 폴더 열기] → 크롬 주소창에 <b>chrome://extensions</b> → 개발자 모드 → [압축해제된 확장 프로그램을 로드합니다] → 열린 폴더 선택. 이후 ClipCatch 업데이트로 확장 파일도 갱신돼. 이미 설치했다면 크롬 확장프로그램 화면에서 [새로고침]을 눌러 적용해 줘. 회사 정책으로 제한되면 관리자에게 요청해 줘.</p>
+<summary>확장프로그램 다운로드</summary>
+<p>브라우저에서 선택한 영상을 ClipCatch로 다운로드합니다.</p>
 <div class="reddit-auth-controls">
-<button type="button" id="installBrowserExtension">확장프로그램 폴더 열기</button>
-<button type="button" id="makeBrowserCode">연결 코드 만들기</button>
-<button type="button" id="revokeBrowserLink" class="plain-btn">연결 해제</button></div>
-<p id="browserExtensionPath" style="overflow-wrap:anywhere"></p>
-<div id="browserCodeBox" hidden><p>아래 코드를 복사해 확장의 [ClipCatch 연결]에 붙여넣어 줘. 5분 동안 한 번만 쓸 수 있어.</p>
-<input id="browserPairCode" readonly aria-label="ClipCatch pairing code" style="width:100%;padding:10px"/>
-<button type="button" id="copyBrowserCode">연결 코드 복사</button></div>
+<button type="button" id="installBrowserExtension">설치 폴더 열기</button>
+<button type="button" id="makeBrowserCode">연결 코드 복사</button>
+<button type="button" id="revokeBrowserLink" class="plain-btn">연결 해제</button>
+</div>
 <div id="browserLinkStatus" class="reddit-auth-status" role="status"></div>
-<p>사이트별 공개 게시물 주소를 ClipCatch 다운로드 대기열로 보내는 기능이야. 다운로드 완료 여부는 ClipCatch에서 확인해 줘. 로그인·접근 제한·DRM은 우회하지 않아.</p>
+<p id="browserExtensionPath" hidden style="overflow-wrap:anywhere"></p>
+<div id="browserCodeBox" hidden><p>자동 복사가 안 되면 아래 코드를 복사해 주세요. 코드는 5분간 유효하며, 다른 사람에게 공유하지 마세요.</p>
+<input id="browserPairCode" readonly aria-label="ClipCatch pairing code" style="width:100%;padding:10px"/>
+<button type="button" id="copyBrowserCode">코드 다시 복사</button></div>
+<details id="browserInstallHelp"><summary>설치 방법</summary>
+<ol><li>[설치 폴더 열기]를 누릅니다.</li>
+<li>크롬 주소창에 <code>chrome://extensions</code>를 입력합니다.</li>
+<li>개발자 모드를 켜고 [압축해제된 확장 프로그램을 로드합니다]에서 열린 폴더를 선택합니다.</li>
+<li>[연결 코드 복사] 후 퍼즐 모양 → <b>ClipCatch Browser</b>에 붙여넣고 연결합니다.</li></ol>
+<p>테스트용 확장프로그램은 최초 1회만 별도 등록합니다. 기존 정식 확장프로그램은 삭제하지 마세요. 회사 정책으로 제한되면 관리자에게 문의해 주세요.</p>
+</details>
 </details>
         <details id="redditAuthDetails" class="reddit-auth">
           <summary>레딧에서 로그인 요구할 때만 · 레딧 인증 연결</summary>
-          <p>공개 영상은 연결 없이 받아져. 로그인 요구 영상만 레딧 사이트의 <b>cookies.txt</b> 파일을 선택해 줘.<br>Chrome 전체 로그인 정보는 읽지 않고, 레딧 쿠키만 골라 사용해.</p>
+          <p>일반 공개 영상은 인증 연결 없이 이용할 수 있습니다. 로그인 요구 영상만 레딧 사이트의 <b>cookies.txt</b> 파일을 선택해 주세요.<br>Chrome 전체 로그인 정보는 읽지 않고, 레딧 쿠키만 선별해 사용합니다.</p>
           <div class="reddit-auth-controls">
             <input id="redditCookieFile" type="file" accept=".txt,text/plain" aria-label="레딧 cookies.txt 파일"/>
             <button id="redditCookieUpload" type="button">레딧 인증 등록</button>
@@ -156,7 +162,7 @@
         <p class="notice" id="inputNotice"></p>
         <div class="action-row">
           <button id="downloadBtn" class="mainbutton" type="button"><svg class="tiny-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m-5-5 5 5 5-5"/><path d="M4 17v3h16v-3"/></svg> 다운로드 시작</button>
-          <span class="support"><strong>최고 가용 화질</strong>로 수집 · 별도의 영상 재인코딩 없음<br/>MP4 우선, 코덱에 따라 MKV로 저장될 수 있어요.</span>
+          <span class="support"><strong>최고 가용 화질</strong>로 수집 · 별도의 영상 재인코딩 없음<br/>MP4 우선, 코덱에 따라 MKV로 저장될 수 있습니다.</span>
         </div>
       </div>
       <div class="bottom-strip">
@@ -182,7 +188,7 @@
     <details class="help-panel" id="helpPanel">
       <summary><span>문제 해결 · 엔진 관리</span><span class="help-status" id="engineInfo">엔진 상태 확인 중 ▾</span></summary>
       <div class="help-body">
-        <p class="help-desc">영상이 안 받아지면 <b>상태 진단하기</b>를 먼저 눌러 줘. 그 다음 안정판 업데이트를 시도하고, 해결되지 않으면 시험판 복구를 사용할 수 있어. <b>원본 영상과 다운로드 내역은 건드리지 않아.</b></p>
+        <p class="help-desc">영상이 안 받아지면 <b>상태 진단하기</b>를 먼저 눌러 줘. 그 다음 안정판 업데이트를 시도하고, 해결되지 않으면 시험판 복구를 사용할 수 있습니다. <b>원본 영상과 다운로드 내역은 건드리지 않아.</b></p>
         <div class="help-btn-row">
           <button class="help-btn primary" id="runDiagnostics" type="button">상태 진단하기</button>
           <button class="help-btn" id="updateEngineStable" type="button">안정판 엔진 업데이트</button>
@@ -190,8 +196,8 @@
           <button class="help-btn" id="rollbackEngine" type="button">이전 엔진으로 되돌리기</button>
           <button class="help-btn" id="copyDiagnostics" type="button">진단 결과 복사</button>
         </div>
-        <p class="help-msg" id="repairFeedback" aria-live="polite">자동으로 업데이트 가능 여부를 확인해. 업데이트는 버튼을 눌렀을 때만 설치해.</p>
-        <p class="help-msg" id="diagnosticSummary">진단 버튼을 누르면 다운로드 도구·저장 폴더·접속 상태를 확인해 줘.</p>
+        <p class="help-msg" id="repairFeedback" aria-live="polite">다운로드 엔진 업데이트는 버튼을 눌렀을 때만 설치됩니다.</p>
+        <p class="help-msg" id="diagnosticSummary">진단 버튼을 누르면 다운로드 도구·저장 폴더·접속 상태를 확인해 주세요.</p>
         <div class="help-checks" id="diagnosticChecks"></div>
         <textarea id="diagnosticCopyFallback" class="help-copy hidden" readonly aria-label="공유용 진단 결과"></textarea>
       </div>
@@ -200,7 +206,7 @@
       <div class="section-head"><div class="section-title">다운로드 내역</div><div class="section-actions"><button id="retryFailed" type="button" class="retry-btn hidden">실패한 영상 다시 시도</button><div class="count" id="historyCount">0개</div></div></div>
       <p class="history-feedback hidden" id="historyFeedback" role="status" aria-live="polite"></p>
       <div class="history" id="history">
-        <div class="empty"><svg width="33" height="33" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4V8z"/></svg><div><b>아직 다운로드한 영상이 없어요</b><p>위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.</p></div></div>
+        <div class="empty"><svg width="33" height="33" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4V8z"/></svg><div><b>아직 다운로드한 영상이 없습니다</b><p>위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.</p></div></div>
       </div>
       <details class="history-more hidden" id="historyMore">
         <summary><span id="historyMoreLabel">이전 기록 보기</span><span class="history-chevron" aria-hidden="true">⌄</span></summary>
@@ -286,8 +292,8 @@
     async function submitLinks(){
       if (loading) return;
       const urls = parseUrls($('urlInput').value);
-      if (!urls.length) {notice('영상 링크를 한 개 이상 입력해 줘.');$('urlInput').focus();return;}
-      if (urls.length > 10) {notice('한 번에 최대 10개까지만 다운로드할 수 있어.');return;}
+      if (!urls.length) {notice('영상 링크를 한 개 이상 입력해 주세요.');$('urlInput').focus();return;}
+      if (urls.length > 10) {notice('한 번에 최대 10개까지만 다운로드할 수 있습니다.');return;}
       loading = true;
       $('downloadBtn').disabled = true;
       $('downloadBtn').lastChild.textContent = ' 추가하는 중...';
@@ -298,8 +304,8 @@
         } catch (err) {
           if (!err.duplicates || !err.duplicates.length) throw err;
           const names=err.duplicates.slice(0,2).map(x=>x.title||x.url).join('\n');
-          if (!confirm('이미 받은 영상 '+err.duplicates.length+'개가 있어.\n'+names+'\n\n새 파일로 다시 저장할까?')) {
-            notice('중복 다운로드를 취소했어. 링크는 그대로 남겨뒀어.');
+          if (!confirm('이미 받은 영상 '+err.duplicates.length+'개가 있습니다.\n'+names+'\n\n새 파일로 다시 저장할까?')) {
+            notice('중복 다운로드를 취소했습니다. 링크는 그대로 남겨뒀어.');
             return;
           }
           result = await post('/api/download', {urls:$('urlInput').value, allow_duplicates:true});
@@ -353,7 +359,7 @@
     $('quitBtn').addEventListener('click', async ()=>{
       if (!confirm('ClipCatch를 종료할까요? 진행 중인 다운로드도 중단됩니다.')) return;
       try { await post('/api/stop'); } catch (e) {}
-      document.body.innerHTML = '<div style="color:#f0f4eb;text-align:center;padding:100px 20px;font-family:Segoe UI,Malgun Gothic,sans-serif"><h2>ClipCatch가 종료됐어요.</h2><p style="color:#9daab7">다시 사용하려면 ClipCatch.exe를 더블클릭하세요.</p></div>';
+      document.body.innerHTML = '<div style="color:#f0f4eb;text-align:center;padding:100px 20px;font-family:Segoe UI,Malgun Gothic,sans-serif"><h2>ClipCatch가 종료되었습니다.</h2><p style="color:#9daab7">다시 사용하려면 ClipCatch.exe를 다시 실행해 주세요.</p></div>';
     });
     function renderJob(j) {
       const elem = document.createElement('div'); elem.className = 'job ' + (['queued','downloading','done','error','cancelled'].includes(j.status)?j.status:'queued');
@@ -383,7 +389,7 @@
         toText(cancel,j.status==='queued'?'대기 취소':'다운로드 취소');
         cancel.addEventListener('click',async()=>{
           cancel.disabled=true;
-          try {await post('/api/cancel-download',{id:j.id});historyNotice('선택한 영상 다운로드를 취소했어.');await poll();}
+          try {await post('/api/cancel-download',{id:j.id});historyNotice('선택한 영상 다운로드를 취소했습니다.');await poll();}
           catch(err){historyNotice('취소 실패: '+err.message,true);cancel.disabled=false;}
         });
         actions.appendChild(cancel);
@@ -392,7 +398,7 @@
         if(j.error_code){
           const help=document.createElement('div');help.className='error-help';
           const title=document.createElement('b');toText(title,j.error_code+' · '+(j.error_title||'문제 발생'));help.appendChild(title);
-          const advice=document.createElement('span');toText(advice,j.error_advice||'상태 진단을 진행해 줘.');help.appendChild(advice);
+          const advice=document.createElement('span');toText(advice,j.error_advice||'상태 진단을 진행해 주세요.');help.appendChild(advice);
           elem.appendChild(help);
         }
         const retry=document.createElement('button'); retry.className='retry-btn';retry.type='button';toText(retry,'이 링크 재시도');
@@ -423,7 +429,7 @@
         const empty=document.createElement('div');empty.className='empty';
         const icon=document.createElement('div');icon.textContent='▧';icon.style.cssText='font-size:30px;color:#748295';
         const label=document.createElement('div');
-        const b=document.createElement('b');toText(b,'아직 다운로드한 영상이 없어요');
+        const b=document.createElement('b');toText(b,'아직 다운로드한 영상이 없습니다');
         const p=document.createElement('p');toText(p,'위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.');
         label.append(b,p);empty.append(icon,label);fragment.appendChild(empty);
       }
@@ -473,7 +479,7 @@
         toText($('repairFeedback'),(st.setup_text||'엔진 준비 중...')+(st.setup_pct>0?' · '+Math.round(st.setup_pct)+'%':''));
         $('repairFeedback').classList.remove('error');
       }else if(st.setup_text==='업데이트 실패' && st.setup_error){
-        toText($('repairFeedback'),'엔진 업데이트 실패 · 진단을 실행해 줘.');
+        toText($('repairFeedback'),'엔진 업데이트 실패 · 진단을 실행해 주세요.');
         $('repairFeedback').classList.add('error');
       }else if(['시험판 엔진 복구 완료','yt-dlp 업데이트 완료','엔진 되돌리기 완료'].includes(st.setup_text)){
         toText($('repairFeedback'),st.setup_text+' · 완료');
@@ -505,12 +511,12 @@
       else if(updateMode==='program' || (!updateMode && ['available','error'].includes(us))){
         const v=upd.latest||st.version||uiVersion;
         if(us==='checking')showUpdateFeedback('ClipCatch 새 버전을 확인하는 중...','working');
-        else if(us==='current')showUpdateFeedback('ClipCatch 최신 버전 v'+v+' · 설치할 업데이트가 없어.','success');
+        else if(us==='current')showUpdateFeedback('ClipCatch 최신 버전 v'+v+' · 설치할 업데이트가 없습니다.','success');
         else if(us==='available')showUpdateFeedback('ClipCatch v'+v+' 업데이트 가능 · 오른쪽 [새 버전 설치]를 눌러 줘.','success',true);
         else if(us==='downloading')showUpdateFeedback('ClipCatch v'+v+' 다운로드 중 · '+Math.round(upd.percent||0)+'%','working',false,upd.percent||0);
         else if(us==='installing')showUpdateFeedback('새 버전 설치 중 · 잠시 후 ClipCatch가 다시 실행돼.','working',false,100);
-        else if(us==='unavailable')showUpdateFeedback('새 버전 확인 불가 · '+(upd.detail||'배포를 확인해 줘.'),'error');
-        else if(us==='error')showUpdateFeedback('업데이트 실패 · '+(upd.detail||'연결을 확인해 줘.'),'error');
+        else if(us==='unavailable')showUpdateFeedback('새 버전 확인 불가 · '+(upd.detail||'배포를 확인해 주세요.'),'error');
+        else if(us==='error')showUpdateFeedback('업데이트 실패 · '+(upd.detail||'연결을 확인해 주세요.'),'error');
       }else if(!updateMode && receipt && receipt.status==='verified' && receipt.version===st.version){
         showUpdateFeedback('ClipCatch v'+receipt.version+' 업데이트 정상 적용 확인됨 · 새 버전 실행 검사 완료.','success');
       }else if(!updateMode && receipt && receipt.status==='rolled_back'){
@@ -536,7 +542,7 @@
       prep.classList.toggle('show',inPrep);prep.classList.toggle('error',st.phase==='error'||!!st.setup_error);
       if(inPrep){
         toText($('setupTitle'),st.setup_text||'도구 준비 중...');
-        toText($('setupSub'),st.setup_error ? (st.setup_error+(st.phase==='error'?'\n프로그램을 종료하고 다시 실행해 주세요.':'\n업데이트 오류가 있어도 기존 다운로드 기능은 계속 사용할 수 있어요.')) : '처음 사용할 때만 필요한 프로그램을 공식 배포처에서 자동으로 준비합니다. 준비 중에도 링크를 추가할 수 있어요.');
+        toText($('setupSub'),st.setup_error ? (st.setup_error+(st.phase==='error'?'\n프로그램을 종료하고 다시 실행해 주세요.':'\n업데이트 오류가 있어도 기존 다운로드 기능은 계속 사용할 수 있습니다.')) : '처음 사용할 때만 필요한 프로그램을 공식 배포처에서 자동으로 준비합니다. 준비 중에도 링크를 추가할 수 있습니다.');
         const hasPct=st.setup_pct>0; $('setupProgress').classList.toggle('indeterminate',!hasPct);
         $('setupBar').style.width=hasPct?Math.max(0,Math.min(100,st.setup_pct))+'%':'';
       }
@@ -550,7 +556,7 @@
       historyNotice('실패한 영상을 다시 다운로드 대기열에 추가하는 중...');
       try {
         const res=await post('/api/retry-failed');
-        historyNotice(res.count ? '실패한 영상 '+res.count+'개를 다시 시도할게.'+(res.skipped?' 중복 '+res.skipped+'개 제외.':'') : '다시 시도할 실패 영상이 없어.');
+        historyNotice(res.count ? '실패한 영상 '+res.count+'개를 다시 시도할게.'+(res.skipped?' 중복 '+res.skipped+'개 제외.':'') : '다시 시도할 실패 영상이 없습니다.');
         await poll();
       } catch(err){historyNotice('일괄 재시도 실패: '+err.message,true);$('retryFailed').disabled=false;}
     });
@@ -560,17 +566,17 @@
     async function repairAction(path,label){
       $('helpPanel').open=true;
       repairMessage(label+' 시작 중...');
-      try{await post(path);await poll();repairMessage(label+' 요청 완료 · 화면에 진행 상태가 표시돼.');}
+      try{await post(path);await poll();repairMessage(label+' 요청 완료 · 화면에 진행 상태가 표시됩니다.');}
       catch(err){repairMessage(label+' 실패 · '+err.message,true);}
     }
     $('runDiagnostics').addEventListener('click',async()=>{
-      repairMessage('진단을 실행하고 있어...');
+      repairMessage('진단을 실행하고 있습니다...');
       try{await post('/api/run-diagnostics');await poll();repairMessage('진단 진행 중 · 결과가 아래 표시될 거야.');}
       catch(err){repairMessage('진단 시작 실패 · '+err.message,true);}
     });
     $('updateEngineStable').addEventListener('click',()=>repairAction('/api/update-tool','안정판 엔진 업데이트'));
     $('repairEngineNightly').addEventListener('click',()=>{
-      if(!confirm('공식 시험판 다운로드 엔진으로 교체할까? 시험판은 최신 사이트 수정이 있지만 안정성이 낮을 수 있어. 문제가 생기면 [이전 엔진으로 되돌리기]를 눌러 줘.'))return;
+      if(!confirm('공식 시험판 다운로드 엔진으로 교체할까? 시험판은 최신 사이트 수정이 있지만 안정성이 낮을 수 있습니다. 문제가 생기면 [이전 엔진으로 되돌리기]를 눌러 줘.'))return;
       repairAction('/api/repair-engine','시험판 엔진 복구');
     });
     $('rollbackEngine').addEventListener('click',()=>{
@@ -587,7 +593,7 @@
         }catch(e){
           $('diagnosticCopyFallback').classList.remove('hidden');$('diagnosticCopyFallback').value=data.report;
           $('diagnosticCopyFallback').focus();$('diagnosticCopyFallback').select();
-          repairMessage('복사가 차단됐어. 아래 선택된 텍스트를 Ctrl+C로 복사해 줘.');
+          repairMessage('복사가 차단됐어. 아래 선택된 텍스트를 Ctrl+C로 복사해 주세요.');
         }
       }catch(err){repairMessage('진단 정보 복사 실패 · '+err.message,true);}
     });

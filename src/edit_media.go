@@ -105,7 +105,7 @@ func inspectEditMedia(parent context.Context, ffmpeg, path string) (editMedia, e
 	defer cancel()
 	out := &cappedBuffer{Limit: 1 << 20}
 	errout := &cappedBuffer{Limit: 4096}
-	cmd := exec.CommandContext(ctx, editProbePath(ffmpeg), "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "stream=index,codec_type,codec_name,pix_fmt,width,height,color_transfer,color_space,color_primaries,color_range,avg_frame_rate,r_frame_rate,sample_aspect_ratio,field_order,profile,sample_rate,channels:stream_side_data=rotation,side_data_type:stream_disposition=attached_pic:format=format_name,duration", "-of", "json", path)
+	cmd := hiddenCommandContext(ctx, editProbePath(ffmpeg), "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "stream=index,codec_type,codec_name,pix_fmt,width,height,color_transfer,color_space,color_primaries,color_range,avg_frame_rate,r_frame_rate,sample_aspect_ratio,field_order,profile,sample_rate,channels:stream_side_data=rotation,side_data_type:stream_disposition=attached_pic:format=format_name,duration", "-of", "json", path)
 	cmd.Stdout = out
 	cmd.Stderr = errout
 	if e = cmd.Run(); e != nil {
@@ -358,7 +358,7 @@ func makeEditCopy(ctx context.Context, ffmpeg, source, folder, work string, prog
 	temp.Close()
 	defer os.Remove(tempName)
 	duration, _ := strconv.ParseFloat(before.Format.Duration, 64)
-	cmd := exec.CommandContext(ctx, ffmpeg, editFFmpegArgs(source, tempName, plan)...)
+	cmd := hiddenCommandContext(ctx, ffmpeg, editFFmpegArgs(source, tempName, plan)...)
 	out, e := cmd.StdoutPipe()
 	if e != nil {
 		return result, errors.New("edit-encode")

@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -125,6 +124,9 @@ func parseGithubRelease(in githubRelease) (verifiedRelease, error) {
 }
 
 func fetchLatestRelease() (verifiedRelease, error) {
+	if isTrialBuild() {
+		return fetchTrialReleases()
+	}
 	var out verifiedRelease
 	req, err := http.NewRequest(http.MethodGet, clipCatchReleaseAPI, nil)
 	if err != nil {
@@ -165,7 +167,9 @@ func (a *App) checkAppUpdate() {
 	rel, err := fetchLatestRelease()
 	if err != nil {
 		msg := err.Error()
-		if strings.Contains(msg, "아직 게시되지") {
+		if errors.Is(err, errNoTrialRelease) {
+			a.setUpdate(UpdateInfo{Status: "unavailable", Detail: errNoTrialRelease.Error()})
+		} else if strings.Contains(msg, "아직 게시되지") {
 			a.setUpdate(UpdateInfo{Status: "unavailable", Detail: "GitHub 배포 준비 중"})
 		} else {
 			a.setUpdate(UpdateInfo{Status: "error", Detail: "업데이트 확인 실패: " + msg})
@@ -175,7 +179,7 @@ func (a *App) checkAppUpdate() {
 	a.mu.Lock()
 	a.latestRelease = rel
 	a.mu.Unlock()
-	if compareSemver(rel.Version, appVersion) <= 0 {
+	if compareRuntimeVersions(rel.Version, appVersion) <= 0 {
 		a.setUpdate(UpdateInfo{Status: "current", Latest: rel.Version, Detail: "최신 버전을 사용하고 있어요."})
 	} else {
 		a.setUpdate(UpdateInfo{Status: "available", Latest: rel.Version, Detail: "새 버전이 있어요. 파일을 다시 받을 필요 없이 설치할 수 있어요."})
@@ -209,10 +213,22 @@ func (a *App) installAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.Lock()
-	if a.state.AppUpdate.Status != "available" || a.latestRelease.BinaryURL == "" {
+	if (a.state.AppUpdate.Status != "available" && a.state.AppUpdate.Status != "error") || !a.updateRequiredLocked() {
 		a.mu.Unlock()
 		writeError(w, 409, "먼저 프로그램 업데이트를 확인해 주세요.")
 		return
+	}
+	if a.premiereSelecting {
+		a.mu.Unlock()
+		writeError(w, 409, "\uD30C\uC77C \uC120\uD0DD\uC744 \uB9C8\uCE5C \uD6C4 \uC5C5\uB370\uC774\uD2B8\uD574 \uC8FC\uC138\uC694.")
+		return
+	}
+	if isTrialBuild() {
+		if err := validateTrialUpdate(a.latestRelease); err != nil {
+			a.mu.Unlock()
+			writeError(w, 409, err.Error())
+			return
+		}
 	}
 	for _, job := range a.state.Jobs {
 		if job.Status == "queued" || job.Status == "downloading" {
@@ -226,6 +242,11 @@ func (a *App) installAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !strings.EqualFold(filepath.Clean(exe), filepath.Clean(target)) {
 		a.mu.Unlock()
 		writeError(w, 409, "설치 폴더의 ClipCatch를 실행해 주세요.")
+		return
+	}
+	if a.state.Phase != "ready" {
+		a.mu.Unlock()
+		writeError(w, 409, "\uB3C4\uAD6C \uC900\uBE44 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.")
 		return
 	}
 	release := a.latestRelease
@@ -242,7 +263,12 @@ func releaseChecksum(rel verifiedRelease) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("검증 파일을 가져오지 못했습니다: %w", err)
 		}
-		parsed, err := readAppChecksum(txt)
+		var parsed string
+		if trialVersionRE.MatchString(rel.Version) {
+			parsed, err = readNamedChecksum(txt, trialAssetName)
+		} else {
+			parsed, err = readAppChecksum(txt)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -273,7 +299,7 @@ func sha256File(path string) (string, error) {
 // A freshly downloaded executable may repair an old per-user installation.
 // This ONLY accepts the currently published GitHub binary, never an arbitrary EXE.
 func verifyManualInstaller(source string, rel verifiedRelease, digest string) error {
-	if compareSemver(rel.Version, appVersion) != 0 {
+	if compareRuntimeVersions(rel.Version, appVersion) != 0 {
 		return fmt.Errorf("현재 최신 배포판은 v%s입니다. 최신 파일을 다운로드해 주세요", rel.Version)
 	}
 	actual, err := sha256File(source)
@@ -308,7 +334,7 @@ func installedBinaryMatches(source, target string) bool {
 // Avoid killing a downloader in the middle of a job. The old app's stop handler
 // exits gracefully; the helper waits for the Windows image lock to be released.
 func stopExistingInstanceForUpgrade() error {
-	return stopExistingInstanceForUpgradeAt("http://127.0.0.1:8765")
+	return stopExistingInstanceForUpgradeAt("http://127.0.0.1:" + runtimePort())
 }
 
 func stopExistingInstanceForUpgradeAt(base string) error {
@@ -322,7 +348,7 @@ func stopExistingInstanceForUpgradeAt(base string) error {
 	}
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&health)
 	_ = resp.Body.Close()
-	if health.App != "clipcatch" {
+	if health.App != runtimeAppID() {
 		return errors.New("다른 프로그램이 ClipCatch 포트를 사용하고 있습니다. 해당 프로그램을 종료한 후 다시 실행해 주세요")
 	}
 	resp, err = client.Get(base + "/api/state")
@@ -372,7 +398,7 @@ func launchManualRepair(source, target string) error {
 	if err = stopExistingInstanceForUpgrade(); err != nil {
 		return err
 	}
-	cmd := exec.Command(source, "--clipcatch-apply-update", target, appVersion)
+	cmd := hiddenCommand(source, "--clipcatch-apply-update", target, appVersion)
 	if err = cmd.Start(); err != nil {
 		return fmt.Errorf("복구 업데이트를 시작할 수 없습니다: %w", err)
 	}
@@ -380,12 +406,18 @@ func launchManualRepair(source, target string) error {
 }
 
 func (a *App) downloadAndInstall(rel verifiedRelease, target string) {
+	if isTrialBuild() {
+		if e := validateTrialUpdate(rel); e != nil {
+			a.setUpdate(UpdateInfo{Status: "error", Detail: e.Error()})
+			return
+		}
+	}
 	digest, err := releaseChecksum(rel)
 	if err != nil {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: "업데이트 검증 실패: " + err.Error()})
 		return
 	}
-	newFile := filepath.Join(a.dataDir, "updates", "ClipCatch-new.exe")
+	newFile := filepath.Join(a.dataDir, "updates", "new-"+runtimeUpdateAssetName())
 	if err := os.MkdirAll(filepath.Dir(newFile), 0700); err != nil {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: err.Error()})
 		return
@@ -412,7 +444,7 @@ func (a *App) downloadAndInstall(rel verifiedRelease, target string) {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: "다운로드된 파일이 Windows 실행파일이 아닙니다."})
 		return
 	}
-	cmd := exec.Command(newFile, "--clipcatch-apply-update", target, rel.Version)
+	cmd := hiddenCommand(newFile, "--clipcatch-apply-update", target, rel.Version)
 	if err := cmd.Start(); err != nil {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: "업데이트 설치 프로세스를 시작하지 못했습니다: " + err.Error()})
 		return
@@ -445,7 +477,7 @@ func applyClipCatchUpdate(args []string) {
 	if !strings.EqualFold(filepath.Clean(args[0]), filepath.Clean(target)) {
 		return
 	}
-	if compareSemver(args[1], appVersion) != 0 {
+	if compareRuntimeVersions(args[1], appVersion) != 0 {
 		return
 	}
 	self, err := os.Executable()
@@ -507,7 +539,7 @@ func applyClipCatchUpdate(args []string) {
 		rollback()
 		return
 	}
-	cmd := exec.Command(target)
+	cmd := hiddenCommand(target)
 	if err := cmd.Start(); err != nil {
 		logUpdate("Failed to launch new executable: " + err.Error())
 		rollback()
@@ -520,7 +552,7 @@ func applyClipCatchUpdate(args []string) {
 	client := &http.Client{Timeout: 800 * time.Millisecond}
 	for i := 0; i < 40; i++ {
 		time.Sleep(350 * time.Millisecond)
-		resp, err := client.Get("http://127.0.0.1:8765/api/health")
+		resp, err := client.Get("http://127.0.0.1:" + runtimePort() + "/api/health")
 		if err != nil {
 			continue
 		}
@@ -530,13 +562,13 @@ func applyClipCatchUpdate(args []string) {
 		}
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 1024)).Decode(&body)
 		_ = resp.Body.Close()
-		if body.App == "clipcatch" && body.Version == appVersion {
+		if body.App == runtimeAppID() && body.Version == appVersion {
 			healthy = true
 			break
 		}
 	}
 	if healthy {
-		_ = os.Remove(backup)
+		// Retain the previous working executable until the next update.
 		if err := writeUpdateReceipt(clipCatchDataDir(), "verified", appVersion, "새 버전 실행과 버전 확인까지 완료했어."); err != nil {
 			logUpdate("Cannot save update receipt: " + err.Error())
 		}
@@ -544,12 +576,12 @@ func applyClipCatchUpdate(args []string) {
 	} else {
 		logUpdate("New version did not become healthy; rolling back. pid=" + strconv.Itoa(pid))
 		if runtime.GOOS == "windows" {
-			_ = exec.Command("taskkill.exe", "/F", "/PID", strconv.Itoa(pid)).Run()
+			_ = hiddenCommand("taskkill.exe", "/F", "/PID", strconv.Itoa(pid)).Run()
 		}
 		time.Sleep(500 * time.Millisecond)
 		rollback()
 		_ = writeUpdateReceipt(clipCatchDataDir(), "rolled_back", appVersion, "새 버전 실행 확인에 실패해서 기존 버전으로 복구했어.")
-		old := exec.Command(target)
+		old := hiddenCommand(target)
 		_ = old.Start()
 		if old.Process != nil {
 			_ = old.Process.Release()
@@ -565,7 +597,7 @@ func logUpdate(msg string) {
 	if x := os.Getenv("LOCALAPPDATA"); x != "" {
 		dir = x
 	}
-	dir = filepath.Join(dir, "ClipCatch")
+	dir = filepath.Join(dir, runtimeDataName())
 	_ = os.MkdirAll(dir, 0700)
 	f, err := os.OpenFile(filepath.Join(dir, "updater.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err == nil {
@@ -575,6 +607,9 @@ func logUpdate(msg string) {
 }
 
 func installedExePath() string {
+	if isTrialBuild() {
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "ClipCatch-Test2", "ClipCatch-Test2.exe")
+	}
 	return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "ClipCatch", "ClipCatch.exe")
 }
 
@@ -590,6 +625,13 @@ func installAndRelaunch() bool {
 	target := installedExePath()
 	if strings.EqualFold(filepath.Clean(source), filepath.Clean(target)) {
 		return false
+	}
+	if isTrialBuild() {
+		if err := stopExistingInstanceForUpgrade(); err != nil {
+			showInstallError(err.Error())
+			return true
+		}
+		time.Sleep(450 * time.Millisecond)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		showInstallError("ClipCatch 설치 폴더를 만들 수 없습니다: " + err.Error())
@@ -635,7 +677,7 @@ func installAndRelaunch() bool {
 		return true
 	}
 	makeClipCatchShortcuts(target)
-	cmd := exec.Command(target)
+	cmd := hiddenCommand(target)
 	if err := cmd.Start(); err != nil {
 		showInstallError("ClipCatch를 시작할 수 없습니다: " + err.Error())
 		return true
@@ -646,21 +688,25 @@ func installAndRelaunch() bool {
 
 func makeClipCatchShortcuts(target string) {
 	// PowerShell is invoked internally; the user never needs to run terminal commands.
+	name := "ClipCatch"
+	if isTrialBuild() {
+		name = "ClipCatch TEST2"
+	}
 	paths := []string{}
 	if home, err := os.UserHomeDir(); err == nil {
 		desktop := filepath.Join(home, "Desktop")
 		if stat, err := os.Stat(desktop); err == nil && stat.IsDir() {
-			paths = append(paths, filepath.Join(desktop, "ClipCatch.lnk"))
+			paths = append(paths, filepath.Join(desktop, name+".lnk"))
 		}
 	}
 	if appdata := os.Getenv("APPDATA"); appdata != "" {
 		start := filepath.Join(appdata, "Microsoft", "Windows", "Start Menu", "Programs")
 		_ = os.MkdirAll(start, 0755)
-		paths = append(paths, filepath.Join(start, "ClipCatch.lnk"))
+		paths = append(paths, filepath.Join(start, name+".lnk"))
 	}
 	script := `$ErrorActionPreference='Stop';$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:CLIPCATCH_SHORTCUT_PATH);$s.TargetPath=$env:CLIPCATCH_SHORTCUT_TARGET;$s.WorkingDirectory=(Split-Path $env:CLIPCATCH_SHORTCUT_TARGET);$s.IconLocation=$env:CLIPCATCH_SHORTCUT_TARGET+',0';$s.Save()`
 	for _, p := range paths {
-		cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+		cmd := hiddenCommand("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
 		cmd.Env = append(os.Environ(), "CLIPCATCH_SHORTCUT_PATH="+p, "CLIPCATCH_SHORTCUT_TARGET="+target)
 		if err := cmd.Run(); err != nil {
 			logUpdate("Cannot create shortcut: " + err.Error())

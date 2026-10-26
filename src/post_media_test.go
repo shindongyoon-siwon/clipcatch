@@ -190,7 +190,7 @@ func TestAlbumRunnerConvertsEveryFileNotJustLast(t *testing.T) {
 	data, _ := os.ReadFile(p)
 	os.WriteFile(two, data, 0600)
 	engine := filepath.Join(d, "fixture-engine")
-	script := fmt.Sprintf("#!/bin/sh\nprintf 'CLIP_FILE|%s\\n'\nprintf 'CLIP_FILE|%s\\n'\n", p, two)
+	script := fmt.Sprintf("#!/bin/sh\nwhile [ \"$#\" -gt 0 ]; do if [ \"$1\" = \"-P\" ]; then shift; dest=$1; fi; shift; done\ncp %q \"$dest/a.mkv\"\ncp %q \"$dest/b.mkv\"\nprintf 'CLIP_FILE|%%s\\n' \"$dest/a.mkv\" \"$dest/b.mkv\"\n", p, two)
 	os.WriteFile(engine, []byte(script), 0700)
 	a := newApp(t.TempDir(), d)
 	a.ffmpeg = ff

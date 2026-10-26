@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -42,7 +41,7 @@ func (a *App) qualityRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/quality/install", a.queueQualityEngine)
 	mux.HandleFunc("GET /api/quality/status", func(w http.ResponseWriter, r *http.Request) {
 		_, e := verifyQualityEngine(a.dataDir)
-		writeJSON(w, 200, map[string]any{"engine_ready": e == nil, "engine_size_mb": 46, "image_output": "PNG", "video_output": "H.264/AAC MP4", "limit_seconds": 120, "limit_side": 4096})
+		writeJSON(w, 200, map[string]any{"engine_ready": e == nil, "engine_bundled": len(bundledQualityEngine) > 0, "engine_size_mb": 46, "image_output": "PNG", "video_output": "H.264/AAC MP4", "limit_seconds": 120, "limit_side": 4096})
 	})
 	mux.HandleFunc("GET /api/quality/preview/{id}/{which}", a.serveQualityPreview)
 }
@@ -54,7 +53,7 @@ func chooseLocalQualitySource(ctx context.Context) (string, error) {
 	defer cancel()
 	script := `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);Add-Type -AssemblyName System.Windows.Forms;$d=New-Object System.Windows.Forms.OpenFileDialog;$d.Title='ClipCatch - Image or video';$d.Multiselect=$false;$d.CheckFileExists=$true;$d.Filter='Images and videos|*.png;*.jpg;*.jpeg;*.webp;*.mp4;*.mkv;*.mov;*.webm;*.m4v';if($d.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){ConvertTo-Json -Compress -InputObject $d.FileName}else{'""'};$d.Dispose()`
 	out := &cappedBuffer{Limit: 32768}
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", script)
+	cmd := hiddenCommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", script)
 	cmd.Stdout = out
 	if e := cmd.Run(); e != nil {
 		return "", e
@@ -117,7 +116,7 @@ func (a *App) queueQualityEngine(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.state.Phase != "ready" || a.state.AppUpdate.Status == "downloading" || a.state.AppUpdate.Status == "installing" {
+	if a.state.Phase != "ready" || a.newWorkBlockedLocked() {
 		writeError(w, 409, qualityMessage(errors.New("quality-not-ready")))
 		return
 	}
@@ -160,7 +159,7 @@ func (a *App) startQualityTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, qualityMessage(e))
 		return
 	}
-	if a.state.Phase != "ready" || a.state.AppUpdate.Status == "installing" || a.state.AppUpdate.Status == "downloading" {
+	if a.state.Phase != "ready" || a.newWorkBlockedLocked() {
 		writeError(w, 409, qualityMessage(errors.New("quality-not-ready")))
 		return
 	}
@@ -221,10 +220,21 @@ func (a *App) runQualityTask(ctx context.Context, id string, j *Job) {
 		if ctx.Err() != nil || a.isJobCancelled(id) {
 			return
 		}
-		a.mutateJob(id, func(x *Job) { x.Status = "error"; x.Detail = qualityMessage(e); x.ErrorCode = "CC-QUALITY" })
+		a.mutateJob(id, func(x *Job) {
+			x.Status = "error"
+			x.Detail = qualityMessage(e)
+			x.ErrorCode = qualityErrorCode(e)
+			x.ErrorTitle = "AI / 미디어 처리 실패"
+			x.ErrorAdvice = qualityMessage(e)
+		})
 	}
 	if j.Task == "quality-engine" {
-		a.mutateJob(id, func(x *Job) { x.Detail = "AI \ub3c4\uad6c \ub2e4\uc6b4\ub85c\ub4dc\u00b7\uac80\uc99d \uc911" })
+		a.mutateJob(id, func(x *Job) {
+			x.Detail = "AI \ub3c4\uad6c \uc900\ube44 \uc911"
+			if len(bundledQualityEngine) > 0 {
+				x.Detail = "\ud3ec\ud568\ub41c AI \ud30c\uc77c \uac80\uc99d\u00b7\uc124\uce58 \uc911 (\ucd94\uac00 \ub2e4\uc6b4\ub85c\ub4dc \uc5c6\uc74c)"
+			}
+		})
 		if e := installQualityEngine(ctx, a.dataDir); e != nil {
 			fail(e)
 			return
@@ -329,7 +339,11 @@ func (a *App) runQualityTask(ctx context.Context, id string, j *Job) {
 	}
 	final := output
 	if !task.Preview {
-		stem := strings.TrimSuffix(q.Name, filepath.Ext(q.Name)) + fmt.Sprintf("_up%dx", o.Scale)
+		suffix := fmt.Sprintf("_resize%dx", o.Scale)
+		if o.Mode == "ai" {
+			suffix = fmt.Sprintf("_AI%dx", o.Scale)
+		}
+		stem := strings.TrimSuffix(q.Name, filepath.Ext(q.Name)) + suffix
 		final, e = publishQuality(ctx, output, a.saveDir, stem, ext)
 		if e != nil {
 			fail(e)
@@ -352,7 +366,11 @@ func (a *App) runQualityTask(ctx context.Context, id string, j *Job) {
 		if task.Preview {
 			x.Detail = "\ube44\uad50\ubcf8 \uc900\ube44 \uc644\ub8cc \u00b7 \uc544\ub798\uc5d0\uc11c \ud655\uc778 \ud6c4 \uc800\uc7a5"
 		} else {
-			x.Detail = "\ubcf4\uc815\ubcf8 \uc800\uc7a5 \uc644\ub8cc \u00b7 \uc6d0\ubcf8 \ubcf4\uc874"
+			if o.Mode == "ai" {
+				x.Detail = "AI \ubcf4\uc815\ubcf8 \uc800\uc7a5 \uc644\ub8cc \u00b7 \uc6d0\ubcf8 \ubcf4\uc874"
+			} else {
+				x.Detail = "\ud06c\uae30 \ubcc0\uacbd \uc644\ub8cc (AI \ubbf8\uc0ac\uc6a9)"
+			}
 		}
 	})
 }
@@ -387,23 +405,44 @@ func (a *App) serveQualityPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	http.ServeFile(w, r, path)
 }
+func qualityErrorCode(e error) string {
+	code := e.Error()
+	if strings.HasPrefix(code, "quality-download-http-") {
+		return "CC-AI-HTTP-" + strings.TrimPrefix(code, "quality-download-http-")
+	}
+	codes := map[string]string{"quality-engine": "CC-AI-MISSING", "quality-integrity": "CC-AI-INTEGRITY", "quality-archive": "CC-AI-ARCHIVE", "quality-download-network": "CC-AI-NETWORK", "quality-download-timeout": "CC-AI-TIMEOUT", "quality-download-redirect": "CC-AI-REDIRECT", "quality-disk": "CC-AI-DISK", "quality-gpu": "CC-AI-GPU"}
+	if x := codes[code]; x != "" {
+		return x
+	}
+	return "CC-QUALITY"
+}
 func qualityMessage(e error) string {
+	if strings.HasPrefix(e.Error(), "quality-download-http-") {
+		return "AI 설치 서버가 요청을 거부했습니다. HTTP " + strings.TrimPrefix(e.Error(), "quality-download-http-")
+	}
 	messages := map[string]string{
-		"quality-engine":         "AI \ub3c4\uad6c\ub97c \uba3c\uc800 \uc900\ube44\ud574 \uc918.",
-		"quality-integrity":      "AI \ub3c4\uad6c \ud30c\uc77c \uac80\uc99d\uc5d0 \uc2e4\ud328\ud588\uc5b4. \uc2e4\ud589\ud558\uc9c0 \uc54a\uc558\uc5b4.",
-		"quality-gpu":            "AI \ucc98\ub9ac\uc5d0 \uc2e4\ud328\ud588\uc5b4. \uadf8\ub798\ud53d\uce74\ub4dc\u00b7Vulkan \ub4dc\ub77c\uc774\ubc84\u00b7\uba54\ubaa8\ub9ac\ub97c \ud655\uc778\ud574 \uc918. \ube44AI \ud655\ub300\ub294 \uc0ac\uc6a9\ud560 \uc218 \uc788\uc5b4.",
-		"quality-download":       "AI \ub3c4\uad6c\ub97c \ubc1b\uc9c0 \ubabb\ud588\uc5b4. \ub124\ud2b8\uc6cc\ud06c\u00b7\ud68c\uc0ac \uc815\ucc45\ub97c \ud655\uc778\ud574 \uc918.",
-		"quality-source-changed": "\uc6d0\ubcf8\uc774 \ubc14\ub00c\uc5c8\uac70\ub098 \uc120\ud0dd\uc774 \ub9cc\ub8cc\ub410\uc5b4. \ud30c\uc77c\uc744 \ub2e4\uc2dc \uace8\ub77c \uc918.",
-		"quality-preview":        "\ud604\uc7ac \uc124\uc815\uc73c\ub85c \ube44\uad50\ubcf8\uc744 \uba3c\uc800 \ud655\uc778\ud574 \uc918.",
-		"quality-duration":       "\uc601\uc0c1\uc740 \uc2e4\uc81c \uae38\uc774 \uc548\uc5d0\uc11c 120\ucd08 \uc774\ud558\uc758 \uad6c\uac04\uc744 \uace8\ub77c \uc918.",
-		"quality-size":           "\uacb0\uacfc\ub294 \ud55c \ubcc0 4096px, 900\ub9cc \ud654\uc18c \uc774\ud558\ub85c \uc81c\ud55c\ub3fc. \ubc30\uc728\uc744 \uc904\uc5ec \uc918.",
-		"quality-busy":           "\uc9c4\ud589 \uc911\uc778 \ud654\uc9c8 \ucc98\ub9ac\ub97c \uc644\ub8cc\ud558\uac70\ub098 \ucde8\uc18c\ud55c \ub4a4 \uc2dc\ub3c4\ud574 \uc918.",
-		"quality-not-ready":      "\ub3c4\uad6c \uc900\ube44\u00b7\uc5c5\ub370\uc774\ud2b8\uac00 \ub05d\ub09c \ub4a4 \uc2dc\ub3c4\ud574 \uc918.",
-		"quality-windows":        "\ud30c\uc77c \uc120\ud0dd\u00b7AI \ub3c4\uad6c \uc124\uce58\ub294 Windows\uc5d0\uc11c \uc0ac\uc6a9\ud574 \uc918.",
-		"quality-alpha":          "\ud22c\uba85 \uc774\ubbf8\uc9c0\ub294 \ud14c\ub450\ub9ac \uc190\uc0c1\uc744 \ud53c\ud558\ub824\uace0 AI\ub97c \uc801\uc6a9\ud558\uc9c0 \uc54a\uc558\uc5b4. \uc6d0\ud615 \uc720\uc9c0 \ud655\ub300\ub97c \uc120\ud0dd\ud574 \uc918.",
-		"quality-aspect":         "\ube44\uc815\ubc29\ud615 \ud53d\uc140 \uc601\uc0c1\uc740 \ud654\uba74 \ube44\uc728 \uc720\uc9c0\ub97c \uc704\ud574 \uc774\ubc88 \uae30\ub2a5\uc5d0\uc11c \uc81c\uc678\ud588\uc5b4.",
-		"quality-image-profile":  "\uc0c9\uc0c1 \ud504\ub85c\ud30c\uc77c\uc774 \ud3ec\ud568\ub41c \uc774\ubbf8\uc9c0\uc57c. \uc0c9\uc0c1 \uc190\uc2e4\uc744 \ud53c\ud558\ub824\uace0 \ucc98\ub9ac\ud558\uc9c0 \uc54a\uc558\uc5b4. sRGB \uc0ac\ubcf8\uc744 \uc0ac\uc6a9\ud574 \uc918.",
-		"quality-image-format":   "8\ube44\ud2b8 PNG/JPG/WebP\ub97c \uc120\ud0dd\ud574 \uc918. 16\ube44\ud2b8\u00b7\ud2b9\uc218 \uc0c9\uc0c1 \ud30c\uc77c\uc740 \uc6d0\ubcf8\uc744 \uc720\uc9c0\ud574 \uc918.",
+		"quality-ai-source-size":    "AI 보정 입력은 한 변 2048px, 300만 화소 이하입니다.",
+		"quality-engine":            "AI 기능을 먼저 켜 주세요. 크기 변경으로 대체하지 않았습니다.",
+		"quality-integrity":         "AI 파일 검증에 실패했습니다. 실행하지 않았습니다.",
+		"quality-archive":           "AI 파일을 풀지 못했습니다. 원본은 변경하지 않았습니다.",
+		"quality-gpu":               "AI 엔진 실행에 실패했습니다. GPU·Vulkan 드라이버·메모리를 확인해 주세요. AI 보정은 적용되지 않았습니다.",
+		"quality-download":          "AI 설치 전송에 실패했습니다. 보안 설정을 끄지 말고 오류 코드를 확인해 주세요.",
+		"quality-download-network":  "AI 서버에 연결하지 못했습니다. 네트워크 연결을 확인해 주세요.",
+		"quality-download-timeout":  "AI 설치 연결 시간이 초과되었습니다. 다시 시도해 주세요.",
+		"quality-download-redirect": "AI 서버의 이동 주소를 허용할 수 없습니다. 임의 사이트의 설치 파일은 사용하지 마세요.",
+		"quality-disk":              "AI 도구를 PC에 저장하지 못했습니다. 디스크 공간과 폴더 권한을 확인해 주세요.",
+		"quality-engine-backup":     "AI 이전 백업이 있어 교체를 멈췄습니다. 기존 도구를 삭제하지 않았습니다.",
+		"quality-source-changed":    "원본이 바뀌었거나 선택이 만료되었습니다. 파일을 다시 선택해 주세요.",
+		"quality-preview":           "현재 설정으로 비교본을 먼저 확인해 주세요.",
+		"quality-duration":          "영상은 실제 길이 안에서 120초 이하 구간을 선택해 주세요.",
+		"quality-size":              "결과는 한 변 4096px, 900만 화소 이하입니다. 배율을 줄여 주세요.",
+		"quality-busy":              "진행 중인 처리를 완료하거나 취소해 주세요.",
+		"quality-not-ready":         "도구 준비 후 다시 시도해 주세요.",
+		"quality-windows":           "파일 선택·AI 설치는 Windows에서 사용해 주세요.",
+		"quality-alpha":             "투명 이미지는 AI 보정을 지원하지 않습니다. 테두리 손상을 막기 위해 처리를 중단했습니다.",
+		"quality-aspect":            "영상의 화면 비율 정보를 확인할 수 없습니다. 원본을 유지한 채 처리를 중단했습니다.",
+		"quality-image-profile":     "색상 프로파일이 있어 처리를 멈췄습니다. 색상 확인 후 sRGB 사본을 사용해 주세요.",
+		"quality-image-format":      "8비트 PNG/JPG/WebP를 선택해 주세요.",
 	}
 	if text := messages[e.Error()]; text != "" {
 		return text
@@ -411,5 +450,5 @@ func qualityMessage(e error) string {
 	if strings.HasPrefix(e.Error(), "edit-") {
 		return editErrorMessage(e)
 	}
-	return "\ucc98\ub9ac\u00b7\uac80\uc99d\uc5d0 \uc2e4\ud328\ud588\uc5b4. \uc6d0\ubcf8\uc740 \ubcc0\uacbd\ud558\uc9c0 \uc54a\uc558\uc5b4."
+	return "처리·검증에 실패했습니다. 원본은 변경하지 않았습니다."
 }

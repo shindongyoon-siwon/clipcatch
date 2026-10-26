@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -116,7 +115,7 @@ func (a *App) inspectBrowserOutput(parent context.Context, path string) (bool, b
 	}
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
-	b, err := exec.CommandContext(ctx, probe, "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", path).Output()
+	b, err := hiddenCommandContext(ctx, probe, "-v", "error", "-show_entries", "stream=codec_type", "-of", "json", path).Output()
 	if err != nil || len(b) > 16384 {
 		return false, false, errors.New("media validation failed")
 	}
