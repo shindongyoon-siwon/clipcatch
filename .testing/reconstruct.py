@@ -43,7 +43,10 @@ for item in entries:
         new = "".join(lines).encode("utf-8")
     assert hashlib.sha256(new).hexdigest() == item["after"], f"Reconstruction mismatch: {rel}"
     prepared.append((path, new))
+fixture = subprocess.check_output(["git", "show", "HEAD:.testing/native_updater_test.go.txt"], cwd=root)
+assert hashlib.sha256(fixture).hexdigest() == "715846c42c4c27cee0df8a5f0e5e814a22ecf60ad0d936d576cc3190b79bc6c8"
 for path, content in prepared:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(content)
-print(f"Verified and reconstructed {len(prepared)} TEST2 source files. Stable branch is untouched.")
+(root / "src/updater_windows_e2e_test.go").write_bytes(fixture)
+print(f"Verified and reconstructed {len(prepared)} TEST2 source files and native test fix. Stable branch is untouched.")
