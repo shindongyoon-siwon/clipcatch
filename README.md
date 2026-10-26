@@ -1,3 +1,7 @@
+# ClipCatch v1.9.4
+
+Checks for updates automatically when the workspace opens, returns to the foreground or reconnects. Stable builds also check a small official release hint regularly while running, then verify release metadata before offering installation. Background checks stay quiet until a new version is available. See [v1.9.4 notes](docs/releases/v1.9.4.md).
+
 # ClipCatch v1.9.3
 
 Fixes Korean and Unicode download paths across Windows output encodings, preserves actionable per-file diagnostics, and simplifies the workspace around links, downloads and results. Updates, sharing, authentication and diagnostics remain available under Settings / Help. See [v1.9.3 notes](docs/releases/v1.9.3.md).

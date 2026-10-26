@@ -90,7 +90,7 @@ with sync_playwright() as p:
     assert page.evaluate("window.__copied") == "https://github.com/shindongyoon-siwon/clipcatch/releases/latest/download/ClipCatch.exe"
     page.locator("#checkAppUpdate").click()
     expect(page.locator("#updateFeedback")).to_be_visible()
-    assert sum(path == "/api/check-app-update" for path, _ in requests) == 1
+    assert sum(path == "/api/check-app-update" and not (payload or {}).get("automatic") for path, payload in requests) == 1
     page.locator("#helpPanel>summary").click()
     page.locator("#updateEngineStable").click()
     assert sum(path == "/api/update-tool" for path, _ in requests) == 1

@@ -61,7 +61,7 @@ func TestMultiExtensionEmbeddedAndRefreshed(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest, err := os.ReadFile(filepath.Join(folder, "manifest.json"))
-	if err != nil || !strings.Contains(string(manifest), `"version": "1.9.3"`) {
+	if err != nil || !strings.Contains(string(manifest), `"version": "1.9.4"`) {
 		t.Fatalf("embedded extension not found: %s %v", manifest, err)
 	}
 	original, err := os.ReadFile(filepath.Join(folder, "background.js"))
@@ -76,7 +76,7 @@ func TestMultiExtensionEmbeddedAndRefreshed(t *testing.T) {
 	}
 	_ = newApp(root, t.TempDir())
 	after, err := os.ReadFile(filepath.Join(folder, "manifest.json"))
-	if err != nil || !strings.Contains(string(after), `"version": "1.9.3"`) {
+	if err != nil || !strings.Contains(string(after), `"version": "1.9.4"`) {
 		t.Fatal("installed extension not refreshed")
 	}
 }

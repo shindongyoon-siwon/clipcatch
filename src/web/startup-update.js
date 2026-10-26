@@ -35,4 +35,33 @@
   if(!d.open){previousFocus=document.activeElement;d.showModal();(install.disabled?quit:install).focus();}
  }
  const previous=render;render=function(st){previous(st);if(st)draw(st);};if(lastState)draw(lastState);
+
+ // A new tab or a return to this page should discover releases without a manual click.
+ // The app applies the shared freshness/concurrency guard across all open tabs.
+ let automaticTimer=null,automaticRequest=false,lastAutomaticCheckAt=-Infinity;
+ const canCheckAutomatically=()=>document.visibilityState!=='hidden'&&!['checking','downloading','installing'].includes(lastState?.app_update?.status);
+ function scheduleAutomaticCheck(){
+  if(!canCheckAutomatically()||automaticRequest||automaticTimer!==null)return;
+  const delay=Math.max(120,1000-(performance.now()-lastAutomaticCheckAt));
+  automaticTimer=setTimeout(async()=>{
+   automaticTimer=null;if(!canCheckAutomatically()||automaticRequest)return;
+   automaticRequest=true;lastAutomaticCheckAt=performance.now();
+   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
+   // Show any release the app has already found while the fresh check runs.
+   void poll();
+   try{
+    await fetch('/api/check-app-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({automatic:true}),cache:'no-store',signal:controller.signal});
+   }catch(_){
+    // A failed background request is not evidence of a required update.
+   }finally{
+    clearTimeout(timeout);automaticRequest=false;void poll();
+   }
+  },delay);
+ }
+ window.addEventListener('focus',scheduleAutomaticCheck);
+ window.addEventListener('pageshow',scheduleAutomaticCheck);
+ window.addEventListener('online',scheduleAutomaticCheck);
+ document.addEventListener('visibilitychange',scheduleAutomaticCheck);
+ window.addEventListener('pagehide',()=>{if(automaticTimer!==null){clearTimeout(automaticTimer);automaticTimer=null;}});
+ scheduleAutomaticCheck();
 })();

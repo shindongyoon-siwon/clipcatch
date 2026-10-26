@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -131,11 +132,14 @@ func parseGithubRelease(in githubRelease) (verifiedRelease, error) {
 }
 
 func fetchLatestRelease() (verifiedRelease, error) {
+	return fetchLatestReleaseContext(context.Background())
+}
+func fetchLatestReleaseContext(ctx context.Context) (verifiedRelease, error) {
 	if isTrialBuild() {
 		return fetchTrialReleases()
 	}
 	var out verifiedRelease
-	req, err := http.NewRequest(http.MethodGet, clipCatchReleaseAPI, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, clipCatchReleaseAPI, nil)
 	if err != nil {
 		return out, err
 	}
@@ -151,7 +155,7 @@ func fetchLatestRelease() (verifiedRelease, error) {
 		return out, errors.New("릴리스가 아직 게시되지 않았습니다")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return out, fmt.Errorf("GitHub 응답 HTTP %d", resp.StatusCode)
+		return out, updateHTTPError(resp, "GitHub 응답", time.Now())
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -177,49 +181,41 @@ func (a *App) setUpdate(info UpdateInfo) {
 	a.mu.Unlock()
 }
 func (a *App) checkAppUpdate() {
-	a.setUpdate(UpdateInfo{Status: "checking", Detail: "새로운 버전 확인 중..."})
-	rel, err := fetchLatestRelease()
-	if err != nil {
-		msg := err.Error()
-		if errors.Is(err, errNoTrialRelease) {
-			a.setUpdate(UpdateInfo{Status: "unavailable", Detail: errNoTrialRelease.Error()})
-		} else if strings.Contains(msg, "아직 게시되지") {
-			a.setUpdate(UpdateInfo{Status: "unavailable", Detail: "GitHub 배포 준비 중"})
-		} else {
-			a.setUpdate(UpdateInfo{Status: "error", Detail: "업데이트 확인 실패: " + msg})
-		}
-		return
-	}
-	a.mu.Lock()
-	a.latestRelease = rel
-	a.mu.Unlock()
-	a.saveRequiredUpdate(rel)
-	if compareRuntimeVersions(rel.Version, appVersion) <= 0 {
-		a.setUpdate(UpdateInfo{Status: "current", Latest: rel.Version, Detail: "최신 버전을 사용하고 있어요."})
-	} else {
-		a.setUpdate(UpdateInfo{Status: "available", Latest: rel.Version, Detail: "새 버전이 있어요. 파일을 다시 받을 필요 없이 설치할 수 있어요."})
+	if check, _ := a.beginAppUpdateCheck(false, true); check != nil {
+		a.runAppUpdateCheck(check)
 	}
 }
 
 func (a *App) checkAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
-	a.mu.Lock()
-	switch a.state.AppUpdate.Status {
-	case "downloading", "installing":
-		a.mu.Unlock()
+	r.Body = http.MaxBytesReader(w, r.Body, 2048)
+	var input struct {
+		Automatic bool `json:"automatic"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil && err != io.EOF {
+		writeError(w, http.StatusBadRequest, "업데이트 확인 요청을 읽지 못했습니다.")
+		return
+	}
+	check, reason := a.beginAppUpdateCheck(input.Automatic, false)
+	if reason == "server_cooldown" && !input.Automatic {
+		writeError(w, http.StatusTooManyRequests, "업데이트 서버가 잠시 후 다시 확인하도록 요청했어요. 자동으로 다시 확인할게요.")
+		return
+	}
+	if reason == "busy" && !input.Automatic {
 		writeError(w, http.StatusConflict, "업데이트 설치가 끝난 후 다시 확인해 주세요.")
 		return
-	case "checking":
-		a.mu.Unlock()
-		// The automatic startup check may already be running. Treat a click as
-		// a request to SHOW the in-progress status, not an error or another fetch.
+	}
+	if reason == "running" {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "already_running": true})
 		return
 	}
-	// Claim the operation before starting the goroutine to prevent duplicate checks.
-	a.state.AppUpdate = UpdateInfo{Status: "checking", Detail: "새로운 버전 확인 중..."}
-	a.mu.Unlock()
-	go a.checkAppUpdate()
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	if check == nil {
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "skipped": true})
+		return
+	}
+	go a.runAppUpdateCheck(check)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true, "started": true})
 }
 
 func (a *App) installAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +266,7 @@ func (a *App) installAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	release := a.latestRelease
-	a.state.AppUpdate = UpdateInfo{Status: "downloading", Latest: release.Version, Detail: "새 버전 다운로드 중..."}
+	a.claimAppUpdateInstallLocked(release)
 	a.mu.Unlock()
 	go a.downloadAndInstall(release, target)
 	writeJSON(w, 200, map[string]bool{"ok": true})

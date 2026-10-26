@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -160,7 +159,7 @@ func fetchTrialReleases() (verifiedRelease, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return out, fmt.Errorf("GitHub HTTP %d", resp.StatusCode)
+		return out, updateHTTPError(resp, "GitHub", time.Now())
 	}
 	data, e := io.ReadAll(io.LimitReader(resp.Body, (2<<20)+1))
 	if e != nil {
