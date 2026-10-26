@@ -99,17 +99,10 @@
     <header class="navbar">
       <div class="brand">
         <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m-5-5 5 5 5-5"/><path d="M4 17v3h16v-3"/></svg></div>
-        <div class="brand-word">Clip<span>Catch</span> <small style="font-size:10px;color:#d9ff57">__APP_VERSION__</small></div>
+        <div class="brand-word">Clip<span>Catch</span> <small style="font-size:10px;color:#d9ff57">v__APP_VERSION__</small></div>
       </div>
-      <div class="topright"><span class="local"><i></i> 내 PC에서 실행 중</span><button id="quitBtn" class="close-app" title="프로그램 종료">종료</button></div>
+      <div class="topright"><span class="local"><i></i> 실행 중</span><button id="quitBtn" class="close-app" title="프로그램 종료">종료</button></div>
     </header>
-
-    <div class="hero">
-      <div class="eyebrow">CLIPCATCH</div>
-      <h1>링크 하나로,<br/><em>원본 그대로 저장.</em></h1>
-      <p>레딧, X, 유튜브, 인스타그램 등 공개 영상을 주소만 붙여넣어 저장하세요.<br/>다운로드한 영상과 설정은 내 PC에 보관됩니다.</p>
-    </div>
-
 
     <div id="appUpdate" class="app-update hidden" role="status" aria-live="polite">
       <div><div id="appUpdateVersion" class="app-version">CLIPCATCH UPDATE</div><div id="appUpdateStatus" class="app-status"></div><div id="appUpdateDetail" class="app-detail"></div></div>
@@ -118,16 +111,15 @@
 
     <section class="main-card" aria-label="영상 다운로드">
       <div class="entry">
-        <div class="entry-head"><label class="field-title" for="urlInput">다운로드할 영상 링크</label><span class="shortcut">최대 10개 · 여러 링크는 줄바꿈으로 구분</span></div>
+        <div class="entry-head"><label class="field-title" for="urlInput">영상 링크</label><span class="shortcut">최대 10개</span></div>
         <div class="urlwrap">
           <textarea id="urlInput" class="urlbox" placeholder="https://x.com/username/status/123456789...&#10;https://www.reddit.com/r/..." autocomplete="off" spellcheck="false"></textarea>
           <button class="paste" id="pasteBtn" type="button" aria-label="클립보드에서 붙여넣기"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="4" width="12" height="16" rx="2"/><path d="M4 8v12a2 2 0 0 0 2 2h10"/></svg> 붙여넣기</button>
         </div>
-        <div class="info-line"><p>공개된 영상 링크를 넣어주세요. 플랫폼 정책상 일부 영상은 제한될 수 있습니다.</p><span class="input-count" id="urlCount">0 / 10</span></div>
-        <div class="safe-note">이 PC에서 처리 · 정식판 변경 없음</div>
+        <div class="info-line"><p>여러 링크는 한 줄에 하나씩 넣어 주세요.</p><span class="input-count" id="urlCount">0 / 10</span></div>
 
 <details id="browserLinkPanel" class="reddit-auth">
-<summary>확장프로그램 다운로드</summary>
+<summary>확장프로그램 연결</summary>
 <p>브라우저에서 선택한 영상을 ClipCatch로 다운로드합니다.</p>
 <div class="reddit-auth-controls">
 <button type="button" id="installBrowserExtension">설치 폴더 열기</button>
@@ -144,7 +136,7 @@
 <li>크롬 주소창에 <code>chrome://extensions</code>를 입력합니다.</li>
 <li>개발자 모드를 켜고 [압축해제된 확장 프로그램을 로드합니다]에서 열린 폴더를 선택합니다.</li>
 <li>[연결 코드 복사] 후 퍼즐 모양 → <b>ClipCatch Browser</b>에 붙여넣고 연결합니다.</li></ol>
-<p>테스트용 확장프로그램은 최초 1회만 별도 등록합니다. 기존 정식 확장프로그램은 삭제하지 마세요. 회사 정책으로 제한되면 관리자에게 문의해 주세요.</p>
+<p>처음 한 번만 등록하면 됩니다. 회사 정책으로 설치가 제한되면 관리자에게 문의해 주세요.</p>
 </details>
 </details>
         <details id="redditAuthDetails" class="reddit-auth">
@@ -162,7 +154,6 @@
         <p class="notice" id="inputNotice"></p>
         <div class="action-row">
           <button id="downloadBtn" class="mainbutton" type="button"><svg class="tiny-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m-5-5 5 5 5-5"/><path d="M4 17v3h16v-3"/></svg> 다운로드 시작</button>
-          <span class="support"><strong>최고 가용 화질</strong>로 수집 · 별도의 영상 재인코딩 없음<br/>MP4 우선, 코덱에 따라 MKV로 저장될 수 있습니다.</span>
         </div>
       </div>
       <div class="bottom-strip">
@@ -177,18 +168,10 @@
       <div id="setupProgress" class="setup-progress indeterminate"><div id="setupBar"></div></div>
     </div>
 
-    <div class="perks">
-      <span class="perk"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg> 원본 화질·FPS 유지</span>
-      <span class="perk"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg> 오디오 자동 병합</span>
-      <span class="perk"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg> 최대 10개 예약</span>
-      <span class="perk"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg> 추가 서버·API 비용 없음</span>
-    </div>
-
-
     <details class="help-panel" id="helpPanel">
-      <summary><span>문제 해결 · 엔진 관리</span><span class="help-status" id="engineInfo">엔진 상태 확인 중 ▾</span></summary>
+      <summary><span>문제 해결</span><span class="help-status" id="engineInfo">엔진 상태 확인 중 ▾</span></summary>
       <div class="help-body">
-        <p class="help-desc">영상이 안 받아지면 <b>상태 진단하기</b>를 먼저 눌러 줘. 그 다음 안정판 업데이트를 시도하고, 해결되지 않으면 시험판 복구를 사용할 수 있습니다. <b>원본 영상과 다운로드 내역은 건드리지 않아.</b></p>
+        <p class="help-desc">다운로드가 안 되면 <b>상태 진단하기</b>부터 확인해 주세요.</p>
         <div class="help-btn-row">
           <button class="help-btn primary" id="runDiagnostics" type="button">상태 진단하기</button>
           <button class="help-btn" id="updateEngineStable" type="button">안정판 엔진 업데이트</button>
@@ -202,8 +185,8 @@
         <textarea id="diagnosticCopyFallback" class="help-copy hidden" readonly aria-label="공유용 진단 결과"></textarea>
       </div>
     </details>
-    <section>
-      <div class="section-head"><div class="section-title">다운로드 내역</div><div class="section-actions"><button id="retryFailed" type="button" class="retry-btn hidden">실패한 영상 다시 시도</button><div class="count" id="historyCount">0개</div></div></div>
+    <section id="historySection">
+      <div class="section-head"><div class="section-title">작업 내역</div><div class="section-actions"><button id="retryFailed" type="button" class="retry-btn hidden">실패한 영상 다시 시도</button><div class="count" id="historyCount">0개</div></div></div>
       <p class="history-feedback hidden" id="historyFeedback" role="status" aria-live="polite"></p>
       <div class="history" id="history">
         <div class="empty"><svg width="33" height="33" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m10 8 6 4-6 4V8z"/></svg><div><b>아직 다운로드한 영상이 없습니다</b><p>위에 영상 링크를 넣으면 이곳에 진행률과 저장 결과가 표시됩니다.</p></div></div>
@@ -215,7 +198,7 @@
     </section>
     <footer class="footer">
       <div>
-        <div class="footer-tools"><span>ClipCatch v__APP_VERSION__ · 내 컴퓨터에서만 작동</span><button class="update-btn" id="checkAppUpdate" type="button">프로그램 업데이트 확인</button><button class="update-btn" id="updateBtn" type="button">영상 엔진 업데이트</button></div>
+        <div class="footer-tools"><button class="update-btn" id="checkAppUpdate" type="button">프로그램 업데이트 확인</button></div>
         <div id="updateFeedback" class="update-feedback hidden" data-kind="info" role="status" aria-live="polite">
           <span id="appCheckFeedback" class="update-feedback-text"></span>
           <button id="installAppUpdateFooter" class="update-install hidden" type="button">새 버전 설치</button>
@@ -256,6 +239,10 @@
     function notice(msg) { toText($('inputNotice'), msg); $('inputNotice').classList.toggle('show', !!msg); }
     function historyNotice(msg, error=false){
       const el=$('historyFeedback');toText(el,msg);el.classList.toggle('hidden',!msg);el.classList.toggle('error',error);
+    }
+    function revealPanel(panel){
+      for(let node=panel;node;node=node.parentElement){if(node.tagName==='DETAILS')node.open=true;}
+      panel.scrollIntoView({behavior:'smooth',block:'center'});
     }
     function showUpdateFeedback(message, kind='info', canInstall=false, pct=null){
       const box=$('updateFeedback');box.classList.remove('hidden');box.dataset.kind=kind;
@@ -320,11 +307,11 @@
     }
     $('downloadBtn').addEventListener('click',submitLinks);
     $('folderBtn').addEventListener('click', async ()=>{try{await post('/api/open-folder');}catch(e){notice(e.message)}});
-    $('updateBtn').addEventListener('click', async ()=>{
-      updateMode='engine';updateRequestError='';$('updateBtn').disabled=true;
+    $('updateEngineStable').addEventListener('click', async ()=>{
+      updateMode='engine';updateRequestError='';$('updateEngineStable').disabled=true;
       showUpdateFeedback('영상 엔진 업데이트를 시작하는 중...', 'working');
       try {await post('/api/update-tool');notice('');await poll();}
-      catch(e) {updateRequestError='영상 엔진 업데이트 실패: '+e.message;showUpdateFeedback(updateRequestError,'error');$('updateBtn').disabled=false;}
+      catch(e) {updateRequestError='영상 엔진 업데이트 실패: '+e.message;showUpdateFeedback(updateRequestError,'error');$('updateEngineStable').disabled=false;}
     });
 
     $('redditCookieUpload').addEventListener('click', async ()=>{
@@ -409,11 +396,11 @@
         if (j.auth_required && !(lastState && lastState.reddit_auth_ready) && /reddit\.com|redd\.it/i.test(j.host || '')) {
           const auth=document.createElement('button');auth.type='button';auth.className='retry-btn';
           toText(auth,'레딧 로그인 연결하기');
-          auth.addEventListener('click',()=>{$('redditAuthDetails').open=true;$('redditAuthDetails').scrollIntoView({behavior:'smooth'});});
+          auth.addEventListener('click',()=>revealPanel($('redditAuthDetails')));
           actions.appendChild(auth);
         }
         const helpBtn=document.createElement('button');helpBtn.className='retry-btn';helpBtn.type='button';toText(helpBtn,'문제 해결 열기');
-        helpBtn.addEventListener('click',()=>{$('helpPanel').open=true;$('helpPanel').scrollIntoView({behavior:'smooth',block:'center'});});
+        helpBtn.addEventListener('click',()=>revealPanel($('helpPanel')));
         actions.appendChild(helpBtn);
       }
       if(actions.childNodes.length)elem.appendChild(actions);
@@ -506,7 +493,7 @@
       const receipt=st.update_receipt||null;
       const us=upd.status||'';
       $('checkAppUpdate').disabled=['downloading','installing'].includes(us);
-      $('updateBtn').disabled=st.phase!=='ready';
+      $('updateEngineStable').disabled=st.phase!=='ready';
       if(updateRequestError){showUpdateFeedback(updateRequestError,'error');}
       else if(updateMode==='program' || (!updateMode && ['available','error'].includes(us))){
         const v=upd.latest||st.version||uiVersion;
@@ -536,7 +523,7 @@
       $('installAppUpdate').classList.toggle('hidden',us!=='available');
       $('installAppUpdate').disabled=us!=='available';
       toText($('redditAuthStatus'),st.reddit_auth_ready?'레딧 인증 연결됨 · 인증 필요한 영상에서만 사용':'인증 미등록 · 공개 영상은 그대로 이용 가능');
-      if (st.phase==='ready' && st.setup_text==='yt-dlp 업데이트 완료') toText($('updateBtn'),'업데이트 완료 ✓');
+      if (st.phase==='ready' && st.setup_text==='yt-dlp 업데이트 완료') toText($('updateEngineStable'),'엔진 업데이트 완료 ✓');
       toText($('saveDir'),st.save_dir||'다운로드 폴더');
       const prep=$('setup');const inPrep=st.phase!=='ready'||!!st.setup_error;
       prep.classList.toggle('show',inPrep);prep.classList.toggle('error',st.phase==='error'||!!st.setup_error);
@@ -564,7 +551,7 @@
       const out=$('repairFeedback');toText(out,message);out.classList.toggle('error',isError);
     }
     async function repairAction(path,label){
-      $('helpPanel').open=true;
+      revealPanel($('helpPanel'));
       repairMessage(label+' 시작 중...');
       try{await post(path);await poll();repairMessage(label+' 요청 완료 · 화면에 진행 상태가 표시됩니다.');}
       catch(err){repairMessage(label+' 실패 · '+err.message,true);}
@@ -574,7 +561,6 @@
       try{await post('/api/run-diagnostics');await poll();repairMessage('진단 진행 중 · 결과가 아래 표시될 거야.');}
       catch(err){repairMessage('진단 시작 실패 · '+err.message,true);}
     });
-    $('updateEngineStable').addEventListener('click',()=>repairAction('/api/update-tool','안정판 엔진 업데이트'));
     $('repairEngineNightly').addEventListener('click',()=>{
       if(!confirm('공식 시험판 다운로드 엔진으로 교체할까? 시험판은 최신 사이트 수정이 있지만 안정성이 낮을 수 있습니다. 문제가 생기면 [이전 엔진으로 되돌리기]를 눌러 줘.'))return;
       repairAction('/api/repair-engine','시험판 엔진 복구');

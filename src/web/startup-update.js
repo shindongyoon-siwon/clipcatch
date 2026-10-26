@@ -19,7 +19,7 @@
   const u=st.app_update||{},status=u.status,checking=!!st.update_checking,required=!!st.update_required||['available','downloading','installing'].includes(status);
   if(!required&&!checking){if(d.open){d.close();previousFocus?.focus?.();}return;}
   const active=(st.jobs||[]).filter(j=>['queued','downloading'].includes(j.status)),busy=active.length>0||Number(st.active_tasks)>0;
-  version.textContent=(st.channel==='test'?'TEST2 테스트판 ':'운영판 ')+(st.version||uiVersion)+(u.latest?' → '+u.latest:'');
+  version.textContent=(st.channel==='test'?'TEST2 테스트판 ':'ClipCatch ')+(st.version||uiVersion)+(u.latest?' → '+u.latest:'');
   title.textContent=checking&&!required?'새 버전을 확인하고 있어요.':status==='installing'?'업데이트를 적용하고 있어요.':'업데이트 후 이용해 주세요.';
   detail.textContent=checking&&!required?'사용 전에 공식 최신 버전을 확인해요.':busy?'진행 중인 작업은 계속됩니다.\n작업이 끝나면 업데이트할 수 있어요.':status==='installing'?'새 버전 실행을 확인한 뒤 자동으로 열립니다.':'새 다운로드·변환·AI 작업은 업데이트 완료 후 시작할 수 있어요.\n저장한 영상과 설정은 유지돼요.';
   // Never render release Markdown/HTML as markup. No remote images or scripts.

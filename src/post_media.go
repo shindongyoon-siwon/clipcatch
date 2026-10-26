@@ -19,6 +19,78 @@ type savedPostMedia struct {
 	File      string `json:"file"`
 	EditReady bool   `json:"edit_ready,omitempty"`
 	Error     string `json:"error,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+
+// These fixed messages are also the only per-file details allowed in a
+// shareable diagnostic report. Never store a subprocess message or a path here.
+var postMediaErrorMessages = map[string]string{
+	"CC-421-SOURCE":      "저장 파일의 경로나 형식을 확인하지 못했어.",
+	"CC-421-PATH":        "저장 파일이 작업 폴더 안에 있는지 확인하지 못했어.",
+	"CC-421-MISSING":     "저장된 영상 파일을 찾지 못했어.",
+	"CC-421-EMPTY":       "저장된 영상 파일이 비어 있어.",
+	"CC-421-READ":        "저장된 영상 파일을 읽을 수 없어.",
+	"CC-421-FORMAT":      "지원하지 않는 영상 파일 형식이야.",
+	"CC-421-PROBE":       "영상 처리 도구나 저장된 영상의 형식을 확인하지 못했어.",
+	"CC-421-TOOLS":       "영상 처리 도구를 실행할 수 없어.",
+	"CC-421-NO-VIDEO":    "파일에서 영상 트랙을 찾지 못했어.",
+	"CC-421-HDR":         "HDR·특수 색역 영상은 색상 변화를 막기 위해 자동 변환하지 않았어.",
+	"CC-421-INTERLACED":  "인터레이스 영상은 자동 변환하지 않았어.",
+	"CC-421-ROTATION":    "영상의 회전 정보를 처리하지 못했어.",
+	"CC-421-RATE":        "영상의 프레임 간격을 확인하지 못했어.",
+	"CC-421-STRUCTURE":   "영상의 프레임·회전·인터레이스 형식을 확인하지 못했어.",
+	"CC-421-MULTI-TRACK": "영상 트랙이 여러 개인 파일은 자동 변환하지 않았어.",
+	"CC-421-LIMIT":       "영상 크기나 트랙 수가 변환 범위를 넘었어.",
+	"CC-421-STORAGE":     "MP4 저장에 실패했어. 저장 공간과 폴더 권한을 확인해 줘.",
+	"CC-421-ENCODE":      "편집용 MP4로 변환하지 못했어.",
+	"CC-421-VALIDATE":    "변환된 영상의 형식·크기·소리를 확인하지 못했어.",
+	"CC-421-DURATION":    "원본과 변환된 영상의 길이가 맞지 않아.",
+	"CC-421-DECODE":      "영상이나 소리의 전체 재생 검사에 실패했어.",
+	"CC-421-TIMEOUT":     "영상 검사 시간이 길어져 작업을 멈췄어.",
+	"CC-421-MP4":         "MP4 변환·검증에 실패했어.",
+	"CC-421-UNKNOWN":     "파일을 완료하지 못했어. 세부 원인을 다시 확인해 줘.",
+}
+
+func postMediaEditErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch err.Error() {
+	case "edit-input":
+		return "CC-421-READ"
+	case "edit-tools":
+		return "CC-421-TOOLS"
+	case "edit-probe":
+		return "CC-421-PROBE"
+	case "edit-no-video":
+		return "CC-421-NO-VIDEO"
+	case "edit-hdr":
+		return "CC-421-HDR"
+	case "edit-interlaced":
+		return "CC-421-INTERLACED"
+	case "edit-rotation":
+		return "CC-421-ROTATION"
+	case "edit-rate":
+		return "CC-421-RATE"
+	case "edit-multiple-video":
+		return "CC-421-MULTI-TRACK"
+	case "edit-limit":
+		return "CC-421-LIMIT"
+	case "edit-storage":
+		return "CC-421-STORAGE"
+	case "edit-encode":
+		return "CC-421-ENCODE"
+	case "edit-validation":
+		return "CC-421-VALIDATE"
+	case "edit-duration":
+		return "CC-421-DURATION"
+	case "edit-decode":
+		return "CC-421-DECODE"
+	case context.DeadlineExceeded.Error():
+		return "CC-421-TIMEOUT"
+	default:
+		return "CC-421-MP4"
+	}
 }
 
 var xWholePostRE = regexp.MustCompile(`^/(?:[^/]+/status|i/status)/[0-9]+/?$`)
@@ -103,7 +175,7 @@ func completedPostFiles(j *Job) []string {
 	if len(j.Media) > 1 || j.WholePost {
 		files := []string{}
 		for _, m := range j.Media {
-			if m.Error == "" && m.File != "" {
+			if m.Error == "" && m.ErrorCode == "" && m.File != "" {
 				files = append(files, m.File)
 			}
 		}
@@ -123,7 +195,7 @@ func allSavedPostFiles(j *Job) bool {
 			return false
 		}
 		for _, m := range j.Media {
-			if m.Error != "" || !nonempty(m.File) {
+			if m.Error != "" || m.ErrorCode != "" || !nonempty(m.File) {
 				return false
 			}
 		}
@@ -142,30 +214,45 @@ func (a *App) setPostMedia(id string, index int, item savedPostMedia) {
 	})
 }
 func validPostSource(root, path string) bool {
+	return postSourceErrorCode(root, path) == ""
+}
+func postSourceErrorCode(root, path string) string {
 	if !filepath.IsAbs(path) {
-		return false
+		return "CC-421-PATH"
 	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi", ".ts", ".m2ts", ".flv", ".ogv":
 	default:
-		return false
+		return "CC-421-FORMAT"
 	}
 	st, err := os.Stat(path)
-	if err != nil || !st.Mode().IsRegular() || st.Size() == 0 {
-		return false
+	if os.IsNotExist(err) {
+		return "CC-421-MISSING"
+	}
+	if err != nil {
+		return "CC-421-READ"
+	}
+	if !st.Mode().IsRegular() {
+		return "CC-421-FORMAT"
+	}
+	if st.Size() == 0 {
+		return "CC-421-EMPTY"
 	}
 	// Resolve symlinks; a fake stdout marker cannot make conversion inspect a
 	// file outside the chosen download folder. Source files are never deleted.
 	base, err := filepath.EvalSymlinks(root)
 	if err != nil {
-		return false
+		return "CC-421-PATH"
 	}
 	actual, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return false
+		return "CC-421-PATH"
 	}
 	rel, err := filepath.Rel(base, actual)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
+		return "CC-421-PATH"
+	}
+	return ""
 }
 func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 	j := a.getJob(id)
@@ -173,12 +260,19 @@ func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 		return
 	}
 	count := len(j.Media)
+	// The downloader may have failed after saving one of several videos. Keep
+	// its classified cause; per-file checks and the completion summary supplement it.
+	keepDownloadError := j.DownloadIncomplete && isDownloadErrorCode(j.ErrorCode)
 	if count == 0 {
 		a.mutateJob(id, func(j *Job) {
 			if j.Status != "cancelled" {
 				j.Status = "error"
-				j.ErrorCode = "CC-421"
-				j.Detail = "\uC800\uC7A5\uB41C \uC601\uC0C1\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC5B4."
+				j.Detail = "완료된 영상 0개 · 저장된 파일을 확인하지 못했어."
+				if !keepDownloadError {
+					j.ErrorCode = "CC-421"
+					j.ErrorTitle = j.Detail
+					j.ErrorAdvice = "남아 있는 파일은 삭제하지 않았어. 문제 해결에서 진단 결과를 확인해 줘."
+				}
 			}
 		})
 		return
@@ -193,8 +287,10 @@ func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 			return
 		}
 		item.Error = ""
-		if !validPostSource(a.downloadRoot(j), item.Original) {
-			item.Error = "\uC800\uC7A5 \uD30C\uC77C \uACBD\uB85C\u00B7\uD615\uC2DD \uD655\uC778 \uD544\uC694"
+		item.ErrorCode = ""
+		if code := postSourceErrorCode(a.downloadRoot(j), item.Original); code != "" {
+			item.ErrorCode = code
+			item.EditReady = false
 		} else if convert {
 			if !item.EditReady || !nonempty(item.File) {
 				result, err := a.makeDownloadEditCopy(j, ctx, ff, item.Original, a.saveDir, filepath.Join(a.dataDir, "edit-work"), func(stage string, pct float64) {
@@ -213,7 +309,7 @@ func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 					return
 				}
 				if err != nil {
-					item.Error = editErrorMessage(err)
+					item.ErrorCode = postMediaEditErrorCode(err)
 					item.EditReady = false
 				} else {
 					item.File = result.File
@@ -228,11 +324,16 @@ func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 					hasVideo = true
 				}
 			}
-			if err != nil || !hasVideo {
-				item.Error = "\uC601\uC0C1 \uD615\uC2DD \uAC80\uC0AC \uC2E4\uD328"
+			if err != nil {
+				item.ErrorCode = postMediaEditErrorCode(err)
+			} else if !hasVideo {
+				item.ErrorCode = "CC-421-NO-VIDEO"
 			} else {
 				item.File = item.Original
 			}
+		}
+		if item.ErrorCode != "" {
+			item.Error = postMediaErrorMessages[item.ErrorCode]
 		}
 		a.setPostMedia(id, i, item)
 		if item.Error == "" {
@@ -255,13 +356,23 @@ func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 		}
 		item.OriginalFile = item.Media[0].Original
 		item.EditReady = convert && successes == count
-		item.AuthRequired = false
+		if !keepDownloadError {
+			item.AuthRequired = false
+		}
 		if successes < count || item.DownloadIncomplete || item.MediaOverflow {
 			item.Status = "error"
-			item.ErrorCode = "CC-421"
-			item.Detail = fmt.Sprintf("%d\uAC1C \uC800\uC7A5 \u00B7 \uC77C\uBD80 \uC601\uC0C1 \uD655\uC778 \uD544\uC694", successes)
-			item.ErrorTitle = item.Detail
-			item.ErrorAdvice = "\uC131\uACF5\uD55C \uD30C\uC77C\uACFC \uC6D0\uBCF8\uC740 \uBCF4\uC874\uD588\uC5B4. \uC804\uCCB4 \uC644\uB8CC\uB85C \uCC98\uB9AC\uD558\uC9C0 \uC54A\uC558\uC5B4."
+			item.Detail = fmt.Sprintf("%d/%d개 준비 완료 · 일부 영상 확인 필요", successes, count)
+			if successes == 0 {
+				item.Detail = "완료된 영상 0개 · 파일별 오류를 확인해 줘."
+			}
+			if !keepDownloadError {
+				item.ErrorCode = "CC-421"
+				item.ErrorTitle = item.Detail
+				item.ErrorAdvice = "완료된 파일은 그대로 두었어. 문제가 있는 파일의 오류를 확인해 줘."
+				if successes == 0 {
+					item.ErrorAdvice = "남아 있는 파일은 삭제하지 않았어. 아래 파일별 오류를 확인해 줘."
+				}
+			}
 		} else {
 			item.Status = "done"
 			item.ErrorCode = ""
