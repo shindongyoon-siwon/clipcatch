@@ -78,8 +78,8 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A src tests docs VERSION README.md .github/workflows/release.yml
-          git rm -f .github/workflows/promote-test5-stable.yml .release/promote_test5_stable.py
+          git add -A src tests docs VERSION README.md
+          echo 'Keep promotion workflow and script unchanged; remove with connector after source promotion'
           git diff --cached --stat
           git diff --cached --quiet && { echo 'Nothing to promote'; exit 1; }
           git commit -m 'Prepare stable ClipCatch v1.9.1 from verified TEST2 test.5'
