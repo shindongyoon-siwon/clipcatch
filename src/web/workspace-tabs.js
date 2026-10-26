@@ -35,7 +35,7 @@
  entries.forEach(([id,label,panel],index)=>{const b=el('button',label);b.id=id;b.type='button';b.setAttribute('role','tab');b.setAttribute('aria-controls',panel.id);b.onclick=()=>activate(id);b.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();let next=e.key==='Home'?0:e.key==='End'?2:(index+(e.key==='ArrowRight'?1:2))%3;activate(entries[next][0]);buttons[next].focus();};buttons.push(b);tabs.append(b);});
  activate(active);
  ['checkAppUpdate','installAppUpdate','installAppUpdateFooter','appUpdate','updateFeedback'].forEach(id=>{const n=$(id);if(n)n.hidden=false;});
- const check=$('checkAppUpdate');if(check){check.textContent='\uD14C\uC2A4\uD2B8\uD310 \uC5C5\uB370\uC774\uD2B8 \uD655\uC778';banner.append(check);}
+ const check=$('checkAppUpdate');if(check){check.textContent='새 버전 확인';banner.append(check);}
  if($('appUpdate'))banner.after($('appUpdate'));
 
  const f=el('span','새 운영 버전은 확인 후 설치할 수 있습니다.');f.style.cssText='font-size:11px;color:#9caebb';document.querySelector('.footer-tools')?.append(f);
