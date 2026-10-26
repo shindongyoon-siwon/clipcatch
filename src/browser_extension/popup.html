@@ -1,13 +1,16 @@
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ClipCatch Browser</title><link rel="stylesheet" href="popup.css"></head><body>
-<header><b>ClipCatch <span>Browser</span></b><small>v1.9.0</small></header>
-<details id="connection"><summary id="connectionTitle">ClipCatch 연결</summary><p>ClipCatch에서 [연결 코드 만들기] → [연결 코드 복사]를 누르고 아래에 붙여넣어 줘.</p><textarea id="pairCode" rows="2" aria-label="연결 코드" spellcheck="false"></textarea><button id="pair">연결하기</button></details>
+<header><b>ClipCatch </b><small>1.9.1</small></header>
+<details id="connection"><summary id="connectionTitle">ClipCatch 연결</summary><p>ClipCatch 프로그램에서 [연결 코드 복사]를 누른 후 아래에 붙여넣어 주세요.</p><textarea id="pairCode" rows="2" aria-label="연결 코드" spellcheck="false"></textarea><button id="pair">연결하기</button></details>
+<button type="button" id="reloadExtension" hidden>확장 새로고침</button><p id="connectionBadge" class="connection-badge">ClipCatch 연결 확인 중</p><div class="format-row"><label for="outputMode">저장 형식</label><select id="outputMode"><option value="original">원본 다운로드</option><option value="premiere" selected>MP4 변환</option></select><details id="mp4Help" class="mp4-help"><summary aria-label="변환 전 확인" title="화질·용량 안내">?</summary><div class="mp4-help-copy">영상·음성을 그대로 담으면 재압축에 따른 손실이 없습니다.
+형식을 바꾸기 위해 다시 압축하면 화질·음질이 달라질 수 있고, 처리 시간과 파일 용량이 늘어날 수 있습니다.
+새 MP4 다운로드는 검증 후 MP4만 남기고 중간 파일을 정리합니다. 직접 선택한 기존 파일은 삭제하지 않습니다. 호환성 재변환은 상시 재압축하며 프레임을 조정할 수 있습니다.</div></details></div><p id="modeNote" class="mode-note">편집용 MP4 사본을 저장합니다.</p>
 <div class="collection-head"><div><small>이 페이지에서 찾은</small><h2 id="count">영상 확인 중</h2></div><button id="refresh">다시 찾기</button></div>
 <div class="select-tools"><label><input type="checkbox" id="selectAll">전체 선택</label><span id="selectionCount">0개 선택</span></div>
 <div id="list" aria-label="다운로드할 영상 목록"></div>
-<p id="empty" hidden>아직 영상을 찾지 못했어. 영상을 재생하거나 아래로 내린 후 [다시 찾기]를 눌러 줘.</p>
+<p id="empty" hidden>아직 영상을 찾지 못했습니다. 영상을 재생하거나 아래로 내린 후 [다시 찾기]를 눌러 주세요.</p>
 <label id="silentRow" hidden><input type="checkbox" id="silent">원래 소리가 없는 영상만 무음 저장</label>
-<button id="send" class="primary" disabled>영상을 선택해 줘</button><button id="retryDuplicates" hidden>이미 받은 영상도 사본으로 다시 받기</button>
-<p id="status" role="status" aria-live="polite"></p>
+<button id="send" class="primary" disabled>영상을 선택해 주세요</button><button id="retryDuplicates" hidden>이미 받은 영상도 사본으로 다시 받기</button>
+<div class="download-result"><p id="status" role="status" aria-live="polite"></p><button id="openDownloads">저장 폴더 열기</button></div>
 <details id="redditTools" hidden><summary>Reddit 개별 게시물의 재생 영상 찾기</summary><button id="scan">재생 영상 찾기</button><div id="candidates"></div></details>
-<footer>이 탭에 불러온 영상만 표시 · 한 번에 최대 10개<br>저장 완료는 ClipCatch에서 확인</footer>
+<section id="transferSection" hidden><h2>다운로드 진행</h2><div id="transfers"></div></section><footer>다운로드는 PC에서 자동 진행됩니다.<br>웹 화면으로 이동할 필요가 없습니다.</footer>
 <script type="module" src="popup.js"></script></body></html>

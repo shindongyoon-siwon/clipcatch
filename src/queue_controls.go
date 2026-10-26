@@ -235,7 +235,7 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cmd != nil && cmd.Process != nil && runtime.GOOS == "windows" {
-		_ = exec.Command("taskkill.exe", "/T", "/F", "/PID", stringPID(cmd.Process.Pid)).Run()
+		_ = hiddenCommand("taskkill.exe", "/T", "/F", "/PID", stringPID(cmd.Process.Pid)).Run()
 	}
 	if stop != nil {
 		stop()
@@ -245,6 +245,11 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) retryFailedHandler(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
+	if updateInProgress(a.state.AppUpdate.Status) {
+		a.mu.Unlock()
+		writeError(w, 409, "Update in progress")
+		return
+	}
 	active := map[string]bool{}
 	for _, j := range a.state.Jobs {
 		if j.Status == "queued" || j.Status == "downloading" {

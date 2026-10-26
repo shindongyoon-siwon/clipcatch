@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ClipCatch Browser",
-  "version": "1.9.0",
-  "description": "Choose loaded video posts and matched Reddit videos to send to ClipCatch. No cookies or passwords are read.",
+  "version": "1.9.1",
+  "description": "ClipCatch companion for selecting public videos and downloading them as original files or Premiere-compatible MP4.",
   "minimum_chrome_version": "120",
   "permissions": [
     "activeTab",
@@ -24,9 +24,10 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "ClipCatch: \uc601\uc0c1 \uc120\ud0dd"
+    "default_title": "ClipCatch - MP4 / Original"
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'"
-  }
+  },
+  "version_name": "1.9.1"
 }

@@ -4,7 +4,7 @@ No live site download, account, cookie or Windows security claim.
 import json, os, threading, tempfile, shutil
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 ROOT=Path(__file__).resolve().parents[1]
 seen=[]
 class Server(BaseHTTPRequestHandler):
@@ -18,9 +18,11 @@ class Server(BaseHTTPRequestHandler):
   self.send_response(204); self.cors(); self.end_headers()
  def do_POST(self):
   body=json.loads(self.rfile.read(int(self.headers.get('Content-Length',0))))
-  if self.path=='/bridge/pair': data={'token':'b'*64,'version':'1.7.2','protocol':1}
+  if self.path=='/bridge/pair': data={'token':'b'*64,'version':'1.9.1','protocol':1,'channel':'stable'}
   elif self.headers.get('Authorization')!='Bearer '+'b'*64:
    self.send_response(401);self.cors();self.end_headers();self.wfile.write(b'{"error":"revoked"}');return
+  elif self.path=='/bridge/status':
+   data={'app':'clipcatch','channel':'stable','protocol':1,'phase':'ready','update_required':False,'capabilities':['job-status','output-mode'],'jobs':[]}
   else:
    seen.append({'route':self.path,'body':body});data={'ok':True,'id':str(len(seen)),'count':1}
   self.send_response(200);self.cors();self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(json.dumps(data).encode())
@@ -55,7 +57,7 @@ try:
   check('feed_two_choices',result['ok'] and len(result['data']['candidates'])==2)
   choices=result['data']['candidates'];check('association',choices[0]['page_url']==post1 and choices[1]['page_url']==post2)
   popup.evaluate("document.getElementById('refresh').click()")
-  popup.wait_for_function('document.querySelectorAll(".video-item").length===2')
+  expect(popup.locator('.video-item')).to_have_count(2)
   check('checkboxes',popup.locator('.video-item input[type=checkbox]').count()==2)
   check('no_silent_bulk_selection',popup.locator('.video-item input:checked').count()==0)
   popup.evaluate("document.getElementById('selectAll').click()")

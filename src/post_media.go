@@ -193,11 +193,11 @@ func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 			return
 		}
 		item.Error = ""
-		if !validPostSource(a.saveDir, item.Original) {
+		if !validPostSource(a.downloadRoot(j), item.Original) {
 			item.Error = "\uC800\uC7A5 \uD30C\uC77C \uACBD\uB85C\u00B7\uD615\uC2DD \uD655\uC778 \uD544\uC694"
 		} else if convert {
 			if !item.EditReady || !nonempty(item.File) {
-				result, err := makeEditCopy(ctx, ff, item.Original, a.saveDir, filepath.Join(a.dataDir, "edit-work"), func(stage string, pct float64) {
+				result, err := a.makeDownloadEditCopy(j, ctx, ff, item.Original, a.saveDir, filepath.Join(a.dataDir, "edit-work"), func(stage string, pct float64) {
 					a.mutateJob(id, func(j *Job) {
 						if j.Status != "cancelled" {
 							j.Status = "downloading"

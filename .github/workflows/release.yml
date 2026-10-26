@@ -30,6 +30,16 @@ jobs:
         with:
           go-version-file: src/go.mod
 
+      - name: Fetch checksum-verified bundled AI runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/quality_bundle
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' \
+            https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip \
+            -o src/quality_bundle/windows.zip
+          echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  src/quality_bundle/windows.zip' | sha256sum -c -
+
       - name: Test and compile Windows executable
         id: build
         shell: bash
@@ -39,9 +49,10 @@ jobs:
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid VERSION"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           cd src
-          go test ./...
+          go test -tags bundled_ai ./...
+          go vet -tags bundled_ai ./...
           mkdir -p ../dist
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags bundled_ai -trimpath \
             -ldflags="-s -w -H windowsgui -X main.appVersion=$VERSION" \
             -o ../dist/ClipCatch.exe .
           cd ../dist

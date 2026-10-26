@@ -111,8 +111,12 @@ func (a *App) convertHistoryFile(w http.ResponseWriter, r *http.Request) {
 			if !in.Safe && item.EditReady && nonempty(item.File) {
 				continue
 			}
-			id, err := a.queueEditFile(item.Original, j.URL, in.Safe)
-			result := map[string]string{"id": id, "name": filepath.Base(item.Original)}
+			source := item.Original
+			if !nonempty(source) {
+				source = item.File
+			}
+			id, err := a.queueEditFile(source, j.URL, in.Safe)
+			result := map[string]string{"id": id, "name": filepath.Base(source)}
 			if err != nil {
 				result["error"] = editErrorMessage(err)
 			}
@@ -148,7 +152,7 @@ func (a *App) queueEditFile(source, url string, force ...bool) (string, error) {
 		return "", errors.New("edit-input")
 	}
 	a.mu.Lock()
-	if a.state.Phase != "ready" || a.state.AppUpdate.Status == "downloading" || a.state.AppUpdate.Status == "installing" {
+	if a.state.Phase != "ready" || a.newWorkBlockedLocked() {
 		a.mu.Unlock()
 		return "", errors.New("edit-not-ready")
 	}
@@ -229,7 +233,7 @@ func chooseLocalEditFiles(parent context.Context) ([]string, error) {
 	// Fixed script, no user input is interpolated into PowerShell.
 	script := `[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);Add-Type -AssemblyName System.Windows.Forms;$d=New-Object System.Windows.Forms.OpenFileDialog;$d.Title='ClipCatch - Select videos';$d.Multiselect=$true;$d.CheckFileExists=$true;$d.Filter='Video files|*.mkv;*.mp4;*.webm;*.mov;*.m4v;*.avi;*.ts;*.m2ts';if($d.ShowDialog() -eq [Windows.Forms.DialogResult]::OK){ConvertTo-Json -Compress -InputObject @($d.FileNames)}else{'[]'};$d.Dispose()`
 	out := &cappedBuffer{Limit: 65536}
-	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", script)
+	cmd := hiddenCommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", script)
 	cmd.Stdout = out
 	if e := cmd.Run(); e != nil {
 		return nil, e
@@ -314,7 +318,7 @@ func (a *App) finishPremiere(id string, ctx context.Context) {
 	a.mu.Lock()
 	ffmpeg := a.ffmpeg
 	a.mu.Unlock()
-	result, e := makeEditCopy(ctx, ffmpeg, source, a.saveDir, filepath.Join(a.dataDir, "edit-work"), func(stage string, pct float64) {
+	result, e := a.makeDownloadEditCopy(j, ctx, ffmpeg, source, a.saveDir, filepath.Join(a.dataDir, "edit-work"), func(stage string, pct float64) {
 		a.mutateJob(id, func(j *Job) {
 			if j.Status != "cancelled" {
 				j.Status = "downloading"
@@ -355,6 +359,10 @@ func (a *App) finishPremiere(id string, ctx context.Context) {
 			return
 		}
 		j.File = result.File
+		if len(j.Media) == 1 {
+			j.Media[0].File = result.File
+			j.Media[0].EditReady = true
+		}
 		j.EditReady = true
 		j.Stage = ""
 		j.Status = "done"

@@ -120,7 +120,7 @@ func TestQualityPreviewRequiredAndSourceChange(t *testing.T) {
 	id = a.state.Jobs[0].ID
 	a.runDownload(id)
 	j = a.getJob(id)
-	if j.Status != "done" || !strings.HasSuffix(j.File, "_up2x.png") {
+	if j.Status != "done" || !strings.HasSuffix(j.File, "_resize2x.png") {
 		t.Fatalf("save failed %+v", j)
 	}
 	if !nonempty(source) {

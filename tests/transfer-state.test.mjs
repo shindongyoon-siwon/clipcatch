@@ -1,0 +1,7 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {transferSummary,candidateJobs} from '../src/browser_extension/transfer-state.mjs';
+test('acceptance is not a completed download',()=>{assert.equal(transferSummary([{status:'queued',file_count:0}]).state,'active');assert.notEqual(transferSummary([],2).state,'done');});
+test('MP4 processing at 100 percent is not completion',()=>{assert.equal(transferSummary([{status:'downloading',stage:'converting',percent:100,file_count:0}]).state,'active');});
+test('completion requires all expected saved files',()=>{assert.equal(transferSummary([{status:'done',file_count:2}]).state,'done');assert.equal(transferSummary([{status:'done',file_count:2}]).files,2);assert.notEqual(transferSummary([{status:'done',file_count:0}]).state,'done');assert.notEqual(transferSummary([{status:'done',file_count:1}],2).state,'done');});
+test('partial failures and cancelled jobs never report all complete',()=>{for(const status of ['error','cancelled','unavailable']){const s=transferSummary([{status:'done',file_count:1},{status,file_count:0}]);assert.notEqual(s.state,'done');assert.equal(s.files,1);}});
+test('row follows its task IDs, not another video or older batch',()=>{const jobs=[{id:'a',key:'k',created:1,status:'done',file_count:1},{id:'b',key:'k',created:2,status:'downloading'},{id:'c',key:'other',status:'done',file_count:1}];assert.deepEqual(candidateJobs('k',null,jobs).map(x=>x.id),['b']);assert.deepEqual(candidateJobs('k',{job_ids:['a']},jobs).map(x=>x.id),['a']);});

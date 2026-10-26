@@ -32,7 +32,17 @@ func TestBrowserE2EServer(t *testing.T) {
 		t.Fatal(e, string(out))
 	}
 	engine := filepath.Join(d, "fixture-engine")
-	script := "#!/bin/sh\nprintf 'CLIP_TITLE|Browser test video\\n'\nprintf 'CLIP_PROGRESS|100%%|1MiB/s|00:00\\n'\nprintf 'CLIP_FILE|" + file + "\\n'\n"
+	script := "#!/bin/sh\n" +
+		"dest=\u0027\u0027\n" +
+		"while [ \"$#\" -gt 0 ]; do\n" +
+		"  if [ \"$1\" = \"-P\" ]; then shift; dest=\"$1\"; fi\n" +
+		"  shift\n" +
+		"done\n" +
+		"[ -n \"$dest\" ] || exit 3\n" +
+		"cp " + fmt.Sprintf("%q", file) + " \"$dest/fixture-video.mp4\" || exit 4\n" +
+		"printf 'CLIP_TITLE|Browser test video\\n'\n" +
+		"printf 'CLIP_PROGRESS|100%%|1MiB/s|00:00\\n'\n" +
+		"printf 'CLIP_FILE|%s\\n' \"$dest/fixture-video.mp4\"\n"
 	if e = os.WriteFile(engine, []byte(script), 0700); e != nil {
 		t.Fatal(e)
 	}

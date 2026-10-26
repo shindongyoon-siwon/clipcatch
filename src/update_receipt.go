@@ -25,15 +25,15 @@ func clipCatchDataDir() string {
 	if runtime.GOOS == "windows" && os.Getenv("LOCALAPPDATA") != "" {
 		base = os.Getenv("LOCALAPPDATA")
 	}
-	return filepath.Join(base, appName)
+	return filepath.Join(base, runtimeDataName())
 }
 
 func writeUpdateReceipt(dir, status, version, detail string) error {
 	if status != "verified" && status != "rolled_back" {
 		return os.ErrInvalid
 	}
-	if _, err := parseSemver(version); err != nil {
-		return err
+	if !validReceiptVersion(version) {
+		return os.ErrInvalid
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
@@ -57,7 +57,7 @@ func readUpdateReceipt(dir string) *UpdateReceipt {
 	if receipt.Status != "verified" && receipt.Status != "rolled_back" {
 		return nil
 	}
-	if _, err := parseSemver(receipt.Version); err != nil {
+	if !validReceiptVersion(receipt.Version) {
 		return nil
 	}
 	// Stale receipts should not keep displaying indefinitely.
@@ -66,4 +66,13 @@ func readUpdateReceipt(dir string) *UpdateReceipt {
 		return nil
 	}
 	return &receipt
+}
+
+func validReceiptVersion(v string) bool {
+	if isTrialBuild() {
+		_, e := parseTrialVersion(v)
+		return e == nil
+	}
+	_, e := parseSemver(v)
+	return e == nil
 }

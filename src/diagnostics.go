@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -155,7 +154,7 @@ func intString(n int) string {
 func probeToolExecutable(target string, args ...string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, target, args...)
+	cmd := hiddenCommandContext(ctx, target, args...)
 	cmd.Stdin = nil
 	// Diagnostics require only the exit code; no subprocess output, paths or
 	// credentials are returned or included in a shareable report.
