@@ -18,8 +18,11 @@ import (
 )
 
 const (
-	stableUpdateHintURL     = "https://github.com/" + clipCatchReleaseRepo + "/releases/latest/download/build-info.json"
-	automaticUpdateInterval = time.Minute
+	stableUpdateHintURL      = "https://github.com/" + clipCatchReleaseRepo + "/releases/latest/download/build-info.json"
+	backgroundUpdateInterval = 15 * time.Minute
+	// Page-open/resume requests share a short freshness window, independent
+	// of the longer background polling interval.
+	automaticUpdateCooldown = time.Minute
 	trialUpdateInterval     = 15 * time.Minute
 )
 
@@ -31,9 +34,10 @@ type updateHint struct {
 }
 
 type updateCheckHooks struct {
-	now   func() time.Time
-	probe func(context.Context) (updateHint, error)
-	fetch func(context.Context) (verifiedRelease, error)
+	now       func() time.Time
+	probe     func(context.Context) (updateHint, error)
+	fetch     func(context.Context) (verifiedRelease, error)
+	newTicker func(time.Duration) (<-chan time.Time, func())
 }
 
 type updateCheckState struct {
@@ -191,7 +195,7 @@ func (a *App) runAppUpdateCheck(check *appUpdateCheck) {
 }
 
 func updateCheckDelay(trial bool, failures int, full bool) time.Duration {
-	delay := automaticUpdateInterval
+	delay := automaticUpdateCooldown
 	if trial {
 		return trialUpdateInterval
 	}
@@ -378,17 +382,26 @@ func (a *App) saveRequiredUpdate(r verifiedRelease) {
 }
 func (a *App) watchAppUpdates() {
 	a.checkAppUpdate()
-	interval := automaticUpdateInterval
+	interval := backgroundUpdateInterval
 	if isTrialBuild() {
 		interval = trialUpdateInterval
 	}
-	t := time.NewTicker(interval)
-	defer t.Stop()
+	a.mu.Lock()
+	newTicker := a.updateHooks.newTicker
+	a.mu.Unlock()
+	if newTicker == nil {
+		newTicker = func(interval time.Duration) (<-chan time.Time, func()) {
+			t := time.NewTicker(interval)
+			return t.C, t.Stop
+		}
+	}
+	ticks, stop := newTicker(interval)
+	defer stop()
 	for {
 		select {
 		case <-a.workerStop:
 			return
-		case <-t.C:
+		case <-ticks:
 			if check, _ := a.beginAppUpdateCheck(true, false); check != nil {
 				a.runAppUpdateCheck(check)
 			}
