@@ -1,0 +1,86 @@
+name: Promote ClipCatch TEST5 to stable v1.9.1
+on:
+  push:
+    branches:
+      - release/promote-test5-stable-v1.9.1
+    paths:
+      - .github/workflows/promote-test5-stable.yml
+permissions:
+  contents: write
+concurrency:
+  group: clipcatch-promote-v1.9.1
+  cancel-in-progress: false
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout stable release branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Confirm unchanged stable base
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 13c533c55fd1387a93cfe1557d8600dcf5585b0f HEAD
+          test "$(tr -d '\r\n ' < VERSION)" = "1.9.0"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download exactly reviewed TEST5 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .promotion_tmp
+          curl --fail --location --retry 3 --max-time 120 --proto '=https' --proto-redir '=https' \
+            'https://github.com/shindongyoon-siwon/clipcatch/releases/download/test2-v1.9.1-test.5/ClipCatch_TEST2_test5_source.zip' \
+            -o .promotion_tmp/test5-source.zip
+          echo '28d63d675c51e77064e720da031cc411822b3a065ad19991276a0a23c83129c0  .promotion_tmp/test5-source.zip' | sha256sum -c -
+          python - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import stat
+          import zipfile
+          folder=Path('.promotion_tmp/verified')
+          folder.mkdir(parents=True)
+          with zipfile.ZipFile('.promotion_tmp/test5-source.zip') as z:
+              entries=z.infolist()
+              assert len(entries)>45
+              for member in entries:
+                  name=PurePosixPath(member.filename)
+                  assert not name.is_absolute() and '..' not in name.parts
+                  assert name.parts[0] in ('src','tests','docs')
+                  assert not stat.S_ISLNK(member.external_attr >> 16)
+              z.extractall(folder)
+          assert (folder/'src/main.go').is_file() and (folder/'src/trial_runtime.go').is_file()
+          PY
+          cp -a .promotion_tmp/verified/src/. src/
+          cp -a .promotion_tmp/verified/tests/. tests/
+          cp -a .promotion_tmp/verified/docs/. docs/
+          python .release/promote_test5_stable.py .
+          gofmt -w src/*.go
+          test "$(tr -d '\r\n ' < VERSION)" = "1.9.1"
+          grep -q 'var appChannel = "stable"' src/trial_runtime.go
+      - name: Go, security and browser logic regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd src && go test -race -count=1 ./... && go vet ./...)
+          node --test tests/*.test.mjs
+      - name: Commit reviewed source delta to release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A src tests docs VERSION README.md .github/workflows/release.yml
+          git rm -f .github/workflows/promote-test5-stable.yml .release/promote_test5_stable.py
+          git diff --cached --stat
+          git diff --cached --quiet && { echo 'Nothing to promote'; exit 1; }
+          git commit -m 'Prepare stable ClipCatch v1.9.1 from verified TEST2 test.5'
+          git push origin HEAD:release/promote-test5-stable-v1.9.1
