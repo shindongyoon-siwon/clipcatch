@@ -1,3 +1,7 @@
+# ClipCatch v1.9.5
+
+Checks for updates on startup and when the workspace opens or returns to the foreground, with background checks every 15 minutes while running. The foreground check remains independent of the background timer, and a verified new version immediately opens the update dialog. Rapid repeated events share a short cooldown. See [v1.9.5 notes](docs/releases/v1.9.5.md).
+
 # ClipCatch v1.9.4
 
 Checks for updates automatically when the workspace opens, returns to the foreground or reconnects. Stable builds also check a small official release hint regularly while running, then verify release metadata before offering installation. Background checks stay quiet until a new version is available. See [v1.9.4 notes](docs/releases/v1.9.4.md).
