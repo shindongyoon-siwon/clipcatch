@@ -18,9 +18,11 @@ class Server(BaseHTTPRequestHandler):
   self.send_response(204); self.cors(); self.end_headers()
  def do_POST(self):
   body=json.loads(self.rfile.read(int(self.headers.get('Content-Length',0))))
-  if self.path=='/bridge/pair': data={'token':'b'*64,'version':'1.7.2','protocol':1}
+  if self.path=='/bridge/pair': data={'token':'b'*64,'version':'1.9.1','protocol':1,'channel':'stable'}
   elif self.headers.get('Authorization')!='Bearer '+'b'*64:
    self.send_response(401);self.cors();self.end_headers();self.wfile.write(b'{"error":"revoked"}');return
+  elif self.path=='/bridge/status':
+   data={'app':'clipcatch','channel':'stable','protocol':1,'phase':'ready','update_required':False,'capabilities':['job-status','output-mode'],'jobs':[]}
   else:
    seen.append({'route':self.path,'body':body});data={'ok':True,'id':str(len(seen)),'count':1}
   self.send_response(200);self.cors();self.send_header('Content-Type','application/json');self.end_headers();self.wfile.write(json.dumps(data).encode())
