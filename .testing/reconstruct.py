@@ -3,6 +3,7 @@ import base64
 import hashlib
 import json
 import lzma
+import subprocess
 from pathlib import Path, PurePosixPath
 
 EXPECTED = "0837d978727a4d69f9b6936a6e8a6177460a5a4a0804f6989fd25381ffe405e8"
@@ -24,7 +25,9 @@ for item in entries:
     seen.add(str(rel))
     path = root.joinpath(*rel.parts)
     assert not path.is_symlink() and root in path.resolve().parents
-    old = path.read_bytes() if path.exists() else b""
+    # Git blobs are canonical bytes; Windows checkout may convert LF to CRLF.
+    blob = subprocess.run(["git", "show", "HEAD:" + str(rel)], cwd=root, capture_output=True, check=False)
+    old = blob.stdout if blob.returncode == 0 else b""
     assert hashlib.sha256(old).hexdigest() == item["before"], f"Wrong source base: {rel}"
     if "base64" in item:
         assert str(rel).startswith("src/browser_extension/icon") and rel.suffix == ".png"
