@@ -1,0 +1,134 @@
+name: TEST2 test5 update gate and MP4-only downloads
+on:
+  push:
+    branches: [test/test2-update-gate-mp4]
+    paths: ['.testing/**', '.github/workflows/test5-release.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: clipcatch-test2-test5
+  cancel-in-progress: false
+env:
+  PYTHONUTF8: '1'
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reconstruct reviewed TEST4 and apply readable TEST5 delta
+        run: |
+          python .testing/reconstruct.py
+          python .testing/apply5.py
+          gofmt -w src/*.go
+      - name: Prepare verified bundled AI asset
+        run: |
+          mkdir -p src/quality_bundle
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' \
+            https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip \
+            -o src/quality_bundle/windows.zip
+          echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  src/quality_bundle/windows.zip' | sha256sum -c -
+      - name: Native Windows update, rollback, gate and path safety tests
+        if: runner.os == 'Windows'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          go test -tags bundled_ai -count=1 -v ./... | tee ../windows-tests.log
+          go vet -tags bundled_ai ./...
+      - name: Linux real media and original-preservation tests
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          cd src
+          CLIPCATCH_EDIT_MEDIA_TEST=1 CLIPCATCH_QUALITY_TEST=1 go test -race -tags bundled_ai -count=1 -v ./... | tee ../linux-tests.log
+          go vet -tags bundled_ai ./...
+      - name: Browser logic regression
+        run: node --test tests/*.test.mjs
+      - name: Build single-file TEST2 executable and source
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd src
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags bundled_ai -trimpath \
+            -ldflags='-s -w -H windowsgui -X main.appVersion=1.9.1-test.5 -X main.appChannel=test' \
+            -o ../dist/ClipCatch-Test2.exe .
+          cd ../dist
+          sha256sum ClipCatch-Test2.exe > SHA256SUMS
+          cd ..
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          with zipfile.ZipFile('dist/ClipCatch_TEST2_test5_source.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for folder in ['src','tests','docs']:
+                  for p in Path(folder).rglob('*'):
+                      if p.is_file() and 'quality_bundle' not in p.parts:
+                          z.write(p,p.as_posix())
+              z.writestr('TEST5.txt','TEST2 prerelease only. Native Windows updater fixtures, browser logic and real FFmpeg synthetic media tests. Direct Adobe Premiere import, live SNS downloads and user GPU performance are NOT verified. New MP4 downloads publish only verified outputs; existing user sources are never deleted. Failed intermediates remain in a private recovery workspace. No AI model change.\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: test2-test5-distribution
+          path: dist/*
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test2-test5-evidence-${{ runner.os }}
+          path: '*-tests.log'
+          retention-days: 14
+  publish:
+    needs: test
+    if: github.ref == 'refs/heads/test/test2-update-gate-mp4'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: test2-test5-distribution
+          path: dist
+      - name: Publish TEST2 prerelease only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='test2-v1.9.1-test.5'
+          if gh release view "$TAG" >/dev/null 2>&1; then echo 'Version exists; never overwrite assets.'; exit 1; fi
+          cat > notes.txt <<'TXT'
+          TEST2 only. Production app and stable release unchanged.
+          - Prominent update-before-use dialog once a verified new release is found. Existing work finishes; new downloads/conversions are gated. Offline check failures alone do not lock the app.
+          - MP4 downloads use private per-job intermediate files. Only verified MP4 outputs appear in the download folder. Successful intermediate files are cleaned; failed/partial/cancelled jobs retain recovery sources. Existing user-selected originals are never removed.
+          - Compatible MP4 is byte-copied, not re-encoded. Incompatible codecs still require lossy transcoding; no universal Premiere or visual-quality guarantee.
+          - Extension popup checks worker build before making requests and offers an explicit Reload for mixed-version Unknown request errors. Existing TEST2 extension identity is retained; reload after update.
+          - Native Windows updater replacement/rollback and unit tests, Linux real FFmpeg fixtures and browser logic tests passed. User Windows security, actual Premiere import, live platforms and GPU inference were not tested here.
+          - AI model and job-parallelism design have not changed in this release.
+          TXT
+          gh release create "$TAG" dist/ClipCatch-Test2.exe dist/SHA256SUMS dist/ClipCatch_TEST2_test5_source.zip \
+            --target "$SOURCE_SHA" --draft --prerelease --latest=false \
+            --title 'ClipCatch TEST2 1.9.1-test.5' --notes-file notes.txt
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
