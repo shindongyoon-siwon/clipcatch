@@ -1,0 +1,134 @@
+name: TEST2 in-app updater validation and prerelease
+on:
+  push:
+    branches: [test/test2-inapp-updater]
+    paths: ['.testing/**', '.github/workflows/test2-update-release.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: clipcatch-test2-updater
+  cancel-in-progress: false
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.12'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Reconstruct checksum-pinned TEST2 source
+        run: python .testing/reconstruct.py
+      - name: Prepare official bundled AI asset
+        run: |
+          mkdir -p src/quality_bundle
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' \
+            https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip \
+            -o src/quality_bundle/windows.zip
+          echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  src/quality_bundle/windows.zip' | sha256sum -c -
+      - name: Native Windows replace, restart, rollback and console checks
+        if: runner.os == 'Windows'
+        working-directory: src
+        run: |
+          set -euo pipefail
+          go test -tags bundled_ai -count=1 -v ./... | tee ../windows-tests.log
+          go vet -tags bundled_ai ./...
+      - name: Linux regression and real media fixtures
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ffmpeg
+          cd src
+          CLIPCATCH_EDIT_MEDIA_TEST=1 CLIPCATCH_QUALITY_TEST=1 go test -race -tags bundled_ai -count=1 -v ./... | tee ../linux-tests.log
+          go vet -tags bundled_ai ./...
+      - name: Extension regression checks
+        run: node --test tests/*.test.mjs
+      - name: Build single-file TEST2 executable
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd src
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags bundled_ai -trimpath \
+            -ldflags='-s -w -H windowsgui -X main.appVersion=1.9.1-test.4 -X main.appChannel=test' \
+            -o ../dist/ClipCatch-Test2.exe .
+          cd ../dist
+          sha256sum ClipCatch-Test2.exe > SHA256SUMS
+      - name: Package reconstructed source without models or user files
+        if: runner.os == 'Linux'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          with zipfile.ZipFile('dist/ClipCatch_TEST2_test4_source.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+              for folder in ['src','tests','docs']:
+                  for p in Path(folder).rglob('*'):
+                      if p.is_file() and 'quality_bundle' not in p.parts:
+                          z.write(p,p.as_posix())
+              z.writestr('TEST4.txt','TEST2 1.9.1-test.4 only. Not production. See release notes and test evidence. AI model is bundled in the executable; source build requires the checksum-pinned official asset in the workflow. Direct Premiere import and user GPU acceptance remain unverified.\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: test2-test4-distribution
+          path: dist/*
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test2-test4-evidence-${{ runner.os }}
+          path: '*-tests.log'
+          retention-days: 14
+  publish:
+    needs: test
+    if: github.ref == 'refs/heads/test/test2-inapp-updater'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: test2-test4-distribution
+          path: dist
+      - name: Publish TEST2 prerelease, explicitly not latest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          TAG='test2-v1.9.1-test.4'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo 'This test version already exists. Increment the test version rather than replacing assets.'
+            exit 1
+          fi
+          cat > release-notes.txt <<'TXT'
+          TEST2 channel only. Not a production update.
+          - One-time install to Programs/ClipCatch-Test2; future TEST2 updates are checked in-app and installed only after consent.
+          - Strict prerelease channel, SHA-256 verification, work-in-progress protection, health/version checks and rollback.
+          - Existing TEST2 settings, AI installation, output folder and extension identity are retained. Reload the extension after an app update; no re-registration.
+          - Windows processing child consoles are hidden. This does not resolve all GPU failures or change the enhancement model.
+          - Native Windows test-binary replacement/restart/rollback and unit/JS/media fixtures passed. User Windows security policy, live sites, GPU performance and direct Premiere import remain unverified.
+          - Existing stable ClipCatch and v1.9.0 production release are unchanged.
+          TXT
+          gh release create "$TAG" dist/ClipCatch-Test2.exe dist/SHA256SUMS dist/ClipCatch_TEST2_test4_source.zip \
+            --target "$SOURCE_SHA" --draft --prerelease --latest=false \
+            --title 'ClipCatch TEST2 1.9.1-test.4' --notes-file release-notes.txt
+          gh release edit "$TAG" --draft=false --prerelease --latest=false
