@@ -125,6 +125,8 @@ type App struct {
 	downloaded          map[string]downloadRecord
 	latestRelease       verifiedRelease
 	requireStartupCheck bool
+	updateCheck         updateCheckState
+	updateHooks         updateCheckHooks
 	redditCookies       []byte
 	engineMeta          EngineMetadata
 }
@@ -214,7 +216,7 @@ func (a *App) routes() {
 		a.mu.Lock()
 		state := a.state
 		state.UpdateRequired = a.updateRequiredLocked()
-		state.UpdateChecking = a.requireStartupCheck && a.state.AppUpdate.Status == "checking"
+		state.UpdateChecking = a.startupUpdateCheckingLocked()
 		state.ActiveTasks = len(a.activeRuns)
 		if a.latestRelease.Version != "" {
 			state.AppUpdate.Latest = a.latestRelease.Version

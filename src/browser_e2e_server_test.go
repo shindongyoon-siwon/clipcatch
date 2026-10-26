@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -49,6 +50,13 @@ func TestBrowserE2EServer(t *testing.T) {
 	a := newApp(d, d)
 	a.state.Phase = "ready"
 	a.state.AppUpdate.Status = "current"
+	// Page-open/focus checks must stay inside this synthetic browser fixture.
+	release := discoveryRelease(t, appVersion)
+	hint := discoveryHint(t, appVersion)
+	a.updateHooks = updateCheckHooks{
+		probe: func(context.Context) (updateHint, error) { return hint, nil },
+		fetch: func(context.Context) (verifiedRelease, error) { return release, nil },
+	}
 	a.ytDlp = engine
 	a.ffmpeg = ffmpeg
 	l, e := net.Listen("tcp", "127.0.0.1:0")
