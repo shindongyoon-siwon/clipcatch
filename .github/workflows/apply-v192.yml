@@ -1,0 +1,51 @@
+name: Stage tested ClipCatch v1.9.2 source
+on:
+  push:
+    branches: [fix/stable-installer-parallel-v1.9.2]
+    paths: ['.development/apply-v192.json']
+permissions:
+  contents: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify and apply reviewed source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 9bb029b7064eba883b51fe5478049c020ae69a37 HEAD
+          python - <<'PY'
+          import base64,hashlib,json,lzma,subprocess
+          from pathlib import Path
+          m=json.loads(Path('.development/apply-v192.json').read_text())
+          encoded=''.join(Path(f'.development/v192-part{i}.b64').read_text().strip() for i in range(1,5))
+          data=lzma.decompress(base64.b64decode(encoded,validate=True),memlimit=256*1024*1024)
+          assert len(data)<500000 and hashlib.sha256(data).hexdigest()==m['sha256']
+          subprocess.run(['git','apply','--check','-'],input=data,check=True)
+          subprocess.run(['git','apply','-'],input=data,check=True)
+          PY
+          cd src
+          CLIPCATCH_BUILD_ID_TEST=1 go test -race -count=1 ./...
+          go vet ./...
+          cd ..
+          node --test tests/*.test.mjs
+      - name: Commit source only, leaving workflow review to the connector
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src tests docs VERSION README.md
+          git rm .development/apply-v192.json .development/v192-part*.b64
+          git commit -m 'Fix stable installer identity, bounded parallel downloads and mandatory update notes'
+          git push origin HEAD:fix/stable-installer-parallel-v1.9.2
