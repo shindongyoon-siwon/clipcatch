@@ -43,7 +43,7 @@ async function readOutputMode(value){
  return mode;
 }
 async function handle(m){
- if(m.kind==='hello')return {build:'1.9.1',channel:'stable',capabilities:['output-mode','job-status']};
+ if(m.kind==='hello')return {build:'1.9.2',channel:'stable',capabilities:['output-mode','job-status']};
  if(m.kind==='output-mode'){
   const mode=await readOutputMode(m.value);
   if(m.value!==undefined)await chrome.storage.local.set({outputMode:mode});
@@ -68,6 +68,8 @@ async function handle(m){
   return {...info,paired:true,jobs:recentTransfers.map(x=>({...x,...(info.jobs.find(j=>j.id===x.id)||{status:'unavailable'})}))};
  }
  if(m.kind==='open-folder'){if(!link)throw Error('ClipCatch와 먼저 연결해 주세요.');await checkBackend(link);return localRequest(link,'/bridge/open-folder',{});}
+ if(m.kind==='open-app'){if(!link)throw Error('먼저 ClipCatch와 연결해 주세요.');await checkBackend(link);await chrome.tabs.create({url:new URL(link.base).origin+'/'});return {ok:true};}
+ if(['send-selected','download','send-page'].includes(m.kind)&&link){const state=await checkBackend(link);if(state.update_required||state.update_checking)throw Error('새 작업은 업데이트 확인·설치 후 시작할 수 있어요. [업데이트 안내 열기]를 눌러 주세요.');}
  const tab=await currentTab();
  if(m.kind==='list'){const c=await discover(tab);return {paired:!!link,platform:supportedSite(tab.url),candidates:c.candidates.map(summary),limited:c.limited};}
  if(m.kind==='send-selected'){

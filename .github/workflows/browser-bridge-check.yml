@@ -29,7 +29,7 @@ jobs:
           go test -race ./...
           go vet ./...
           cd ..
-          node --test tests/browser-core.test.mjs tests/feed-core.test.mjs tests/feed-worker.test.mjs
+          node --test tests/*.test.mjs
       - name: Browser test packages
         timeout-minutes: 3
         run: python -m pip install --disable-pip-version-check --timeout 30 --retries 2 yt-dlp==2026.10.21 playwright==1.64.1
@@ -59,6 +59,8 @@ jobs:
         run: go test -run '^TestBrowserRealEngine$' -v .
       - name: Actual Chromium extension handoff fixture
         run: python tests/browser_e2e.py
+      - name: Mandatory update dialog and release notes
+        run: python tests/update_dialog.py
       - name: Feed and multi-media selection fixture
         run: python tests/feed_browser.py
       - uses: actions/upload-artifact@v4
@@ -81,10 +83,12 @@ jobs:
         working-directory: src
         env:
           CGO_ENABLED: '0'
+          CLIPCATCH_BUILD_ID_TEST: '1'
         run: |
           go test ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go build -trimpath -ldflags='-s -w -H windowsgui -X main.appVersion=1.7.2' -o "$env:RUNNER_TEMP/ClipCatch.exe" .
+          $version=(Get-Content ../VERSION -Raw).Trim()
+          go build -trimpath -ldflags="-s -w -H windowsgui -X main.appVersion=$version -X main.appChannel=stable" -o "$env:RUNNER_TEMP/ClipCatch.exe" .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

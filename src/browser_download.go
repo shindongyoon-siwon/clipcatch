@@ -48,11 +48,8 @@ func (a *App) runBrowserJob(id string, j *Job) {
 	}
 	a.mu.Lock()
 	media := a.browser.Sources[id]
-	ctx := a.activeContext
 	a.mu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx := a.jobContext(id)
 	video, audio, err := a.inspectBrowserOutput(ctx, got.File)
 	if a.isJobCancelled(id) {
 		return

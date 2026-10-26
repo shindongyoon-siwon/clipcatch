@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   windows-release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,9 +53,17 @@ jobs:
           go vet -tags bundled_ai ./...
           mkdir -p ../dist
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags bundled_ai -trimpath \
-            -ldflags="-s -w -H windowsgui -X main.appVersion=$VERSION" \
+            -ldflags="-s -w -H windowsgui -X main.appVersion=$VERSION -X main.appChannel=stable" \
             -o ../dist/ClipCatch.exe .
           cd ../dist
+          python - <<'PYI'
+          import json, os, subprocess
+          subprocess.run(['./ClipCatch.exe', '--build-info', 'build-info.json'], check=True, timeout=15)
+          info=json.load(open('build-info.json',encoding='utf-8'))
+          expected=open('../VERSION',encoding='utf-8').read().strip()
+          assert info['app']=='clipcatch' and info['channel']=='stable' and info['version']==expected,info
+          print(info)
+          PYI
           sha256sum ClipCatch.exe > SHA256SUMS
           test -s ClipCatch.exe
 
@@ -72,6 +80,8 @@ jobs:
             echo "Release $TAG already exists. Bump VERSION before publishing."
             exit 1
           fi
-          gh release create "$TAG" dist/ClipCatch.exe dist/SHA256SUMS \
-            --target "$GITHUB_SHA" --title "ClipCatch $TAG" \
-            --notes "Windows 64-bit. Download ClipCatch.exe once; future updates are installed in ClipCatch."
+          NOTES="docs/releases/${TAG}.md"
+          test -s "$NOTES" || { echo 'Release notes are required'; exit 1; }
+          gh release create "$TAG" dist/ClipCatch.exe dist/SHA256SUMS dist/build-info.json \
+            --target "$GITHUB_SHA" --title "ClipCatch $TAG" --draft --notes-file "$NOTES"
+          gh release edit "$TAG" --draft=false --latest

@@ -151,6 +151,11 @@ func (a *App) beginEngineOperation(w http.ResponseWriter, channel, kind string) 
 		writeError(w, 409, "다운로드 준비 또는 엔진 업데이트가 끝난 다음 시도해 줘.")
 		return false
 	}
+	if len(a.activeRuns) > 0 {
+		a.mu.Unlock()
+		writeError(w, 409, "진행 중인 작업이 종료된 후 다시 시도해 줘.")
+		return false
+	}
 	for _, j := range a.state.Jobs {
 		if j.Status == "queued" || j.Status == "downloading" {
 			a.mu.Unlock()

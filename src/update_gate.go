@@ -8,7 +8,7 @@ func (a *App) updateRequiredLocked() bool {
 	return a.latestRelease.BinaryURL != "" && compareRuntimeVersions(a.latestRelease.Version, appVersion) > 0
 }
 func (a *App) newWorkBlockedLocked() bool {
-	return updateInProgress(a.state.AppUpdate.Status) || a.updateRequiredLocked()
+	return (a.requireStartupCheck && a.state.AppUpdate.Status == "checking") || a.stopping || updateInProgress(a.state.AppUpdate.Status) || a.updateRequiredLocked()
 }
 func (a *App) updateGateRequest(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != "POST" {

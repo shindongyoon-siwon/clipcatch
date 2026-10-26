@@ -5,10 +5,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +19,7 @@ func (a *App) trimHistoryLocked() {
 	kept := a.state.Jobs[:0]
 	terminalCount := 0
 	for _, job := range a.state.Jobs {
-		finished := job.Status == "done" || job.Status == "error" || job.Status == "cancelled"
+		finished := (job.Status == "done" || job.Status == "error" || job.Status == "cancelled") && a.activeRuns[job.ID] == nil
 		if finished {
 			if terminalCount >= historyLimit {
 				continue
@@ -211,7 +209,6 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	found := false
 	var stop func()
-	var cmd *exec.Cmd
 	for _, j := range a.state.Jobs {
 		if j.ID != input.ID {
 			continue
@@ -223,9 +220,8 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 		j.Status = "cancelled"
 		j.Detail = "사용자가 다운로드를 취소했어."
 		j.Speed, j.ETA = "", ""
-		if a.activeJobID == input.ID {
-			stop = a.activeCancel
-			cmd = a.activeCmd
+		if run := a.activeRuns[input.ID]; run != nil {
+			stop = run.cancel
 		}
 		break
 	}
@@ -233,9 +229,6 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	if !found {
 		writeError(w, 409, "이미 완료되었거나 취소할 수 없는 다운로드야.")
 		return
-	}
-	if cmd != nil && cmd.Process != nil && runtime.GOOS == "windows" {
-		_ = hiddenCommand("taskkill.exe", "/T", "/F", "/PID", stringPID(cmd.Process.Pid)).Run()
 	}
 	if stop != nil {
 		stop()
@@ -245,7 +238,7 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 }
 func (a *App) retryFailedHandler(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
-	if updateInProgress(a.state.AppUpdate.Status) {
+	if a.newWorkBlockedLocked() {
 		a.mu.Unlock()
 		writeError(w, 409, "Update in progress")
 		return
