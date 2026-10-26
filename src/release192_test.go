@@ -265,14 +265,17 @@ func TestReadVerifiedExecutableBuildIdentity(t *testing.T) {
 		name += ".exe"
 	}
 	binary := filepath.Join(t.TempDir(), name)
-	if out, e := exec.Command("go", "build", "-trimpath", "-ldflags=-X main.appVersion=1.9.2 -X main.appChannel=stable", "-o", binary, ".").CombinedOutput(); e != nil {
+	// Keep the fixture independent of the development fallback, which may use
+	// the newer bundled extension version during initialization.
+	const fixtureVersion = "9.8.7"
+	if out, e := exec.Command("go", "build", "-trimpath", "-ldflags=-X main.appVersion="+fixtureVersion+" -X main.appChannel=stable", "-o", binary, ".").CombinedOutput(); e != nil {
 		t.Fatal(e, string(out))
 	}
 	b, e := fileBuildIdentity(binary)
-	if e != nil || b.Channel != "stable" || b.Version != "1.9.2" || b.App != "clipcatch" {
+	if e != nil || b.Channel != "stable" || b.Version != fixtureVersion || b.App != "clipcatch" {
 		t.Fatal(b, e)
 	}
-	if e := verifyInstallerIdentity(binary, "1.9.3"); e == nil {
+	if e := verifyInstallerIdentity(binary, "9.8.6"); e == nil {
 		t.Fatal("wrong version accepted")
 	}
 }
