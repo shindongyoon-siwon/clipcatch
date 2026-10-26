@@ -27,13 +27,16 @@ const (
 var releaseTagRE = regexp.MustCompile(`^v([0-9]+)\.([0-9]+)\.([0-9]+)$`)
 
 type UpdateInfo struct {
-	Status  string  `json:"status"` // checking, unavailable, current, available, downloading, installing, error
-	Latest  string  `json:"latest,omitempty"`
-	Detail  string  `json:"detail,omitempty"`
-	Percent float64 `json:"percent"`
+	Notes      string  `json:"notes,omitempty"`
+	ReleaseURL string  `json:"release_url,omitempty"`
+	Status     string  `json:"status"` // checking, unavailable, current, available, downloading, installing, error
+	Latest     string  `json:"latest,omitempty"`
+	Detail     string  `json:"detail,omitempty"`
+	Percent    float64 `json:"percent"`
 }
 
 type githubRelease struct {
+	Body       string `json:"body"`
 	TagName    string `json:"tag_name"`
 	Prerelease bool   `json:"prerelease"`
 	Draft      bool   `json:"draft"`
@@ -46,10 +49,12 @@ type githubRelease struct {
 }
 
 type verifiedRelease struct {
-	Version   string
-	BinaryURL string
-	SumsURL   string
-	Digest    string
+	Notes      string
+	ReleaseURL string
+	Version    string
+	BinaryURL  string
+	SumsURL    string
+	Digest     string
 }
 
 func parseSemver(v string) ([3]uint64, error) {
@@ -96,6 +101,8 @@ func parseGithubRelease(in githubRelease) (verifiedRelease, error) {
 		return out, errors.New("릴리스 태그가 유효하지 않습니다")
 	}
 	out.Version = strings.TrimPrefix(in.TagName, "v")
+	out.Notes = safeReleaseNotes(in.Body)
+	out.ReleaseURL = "https://github.com/" + clipCatchReleaseRepo + "/releases/tag/" + in.TagName
 	expectedBase := "https://github.com/" + clipCatchReleaseRepo + "/releases/download/" + in.TagName + "/"
 	for _, a := range in.Assets {
 		switch a.Name {
@@ -159,6 +166,13 @@ func fetchLatestRelease() (verifiedRelease, error) {
 
 func (a *App) setUpdate(info UpdateInfo) {
 	a.mu.Lock()
+	if a.latestRelease.Version != "" {
+		if info.Latest == "" {
+			info.Latest = a.latestRelease.Version
+		}
+		info.Notes = a.latestRelease.Notes
+		info.ReleaseURL = a.latestRelease.ReleaseURL
+	}
 	a.state.AppUpdate = info
 	a.mu.Unlock()
 }
@@ -179,6 +193,7 @@ func (a *App) checkAppUpdate() {
 	a.mu.Lock()
 	a.latestRelease = rel
 	a.mu.Unlock()
+	a.saveRequiredUpdate(rel)
 	if compareRuntimeVersions(rel.Version, appVersion) <= 0 {
 		a.setUpdate(UpdateInfo{Status: "current", Latest: rel.Version, Detail: "최신 버전을 사용하고 있어요."})
 	} else {
@@ -216,6 +231,11 @@ func (a *App) installAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	if (a.state.AppUpdate.Status != "available" && a.state.AppUpdate.Status != "error") || !a.updateRequiredLocked() {
 		a.mu.Unlock()
 		writeError(w, 409, "먼저 프로그램 업데이트를 확인해 주세요.")
+		return
+	}
+	if len(a.activeRuns) > 0 {
+		a.mu.Unlock()
+		writeError(w, 409, "진행 중인 작업이 종료된 후 다시 시도해 줘.")
 		return
 	}
 	if a.premiereSelecting {
@@ -300,7 +320,7 @@ func sha256File(path string) (string, error) {
 // This ONLY accepts the currently published GitHub binary, never an arbitrary EXE.
 func verifyManualInstaller(source string, rel verifiedRelease, digest string) error {
 	if compareRuntimeVersions(rel.Version, appVersion) != 0 {
-		return fmt.Errorf("현재 최신 배포판은 v%s입니다. 최신 파일을 다운로드해 주세요", rel.Version)
+		return fmt.Errorf("%s: \uc2e4\ud589 \ud30c\uc77c v%s / \ucd5c\uc2e0 v%s. \ud300\uc5d0\ub294 \ud504\ub85c\uadf8\ub7a8\uc758 [\uc6b4\uc601\ud310 \uacf5\uc720 \ub9c1\ud06c]\ub97c \uc804\ub2ec\ud574 \uc8fc\uc138\uc694", buildLabel(), appVersion, rel.Version)
 	}
 	actual, err := sha256File(source)
 	if err != nil {
@@ -392,13 +412,29 @@ func launchManualRepair(source, target string) error {
 	if err != nil {
 		return err
 	}
-	if err = verifyManualInstaller(source, rel, digest); err != nil {
+	// If a stale downloaded launcher is opened again, keep the latest installed
+	// executable instead of rejecting it or downgrading it.
+	if hash, e := sha256File(target); e == nil && strings.EqualFold(hash, digest) {
+		makeClipCatchShortcuts(target)
+		cmd := hiddenCommand(target)
+		if e := cmd.Start(); e != nil {
+			return e
+		}
+		return cmd.Process.Release()
+	}
+	installer := source
+	if compareRuntimeVersions(rel.Version, appVersion) > 0 {
+		installer, err = downloadCurrentInstaller(rel, digest)
+		if err != nil {
+			return err
+		}
+	} else if err = verifyManualInstaller(source, rel, digest); err != nil {
 		return err
 	}
 	if err = stopExistingInstanceForUpgrade(); err != nil {
 		return err
 	}
-	cmd := hiddenCommand(source, "--clipcatch-apply-update", target, appVersion)
+	cmd := hiddenCommand(installer, "--clipcatch-apply-update", target, rel.Version)
 	if err = cmd.Start(); err != nil {
 		return fmt.Errorf("복구 업데이트를 시작할 수 없습니다: %w", err)
 	}
@@ -625,13 +661,6 @@ func installAndRelaunch() bool {
 	target := installedExePath()
 	if strings.EqualFold(filepath.Clean(source), filepath.Clean(target)) {
 		return false
-	}
-	if isTrialBuild() {
-		if err := stopExistingInstanceForUpgrade(); err != nil {
-			showInstallError(err.Error())
-			return true
-		}
-		time.Sleep(450 * time.Millisecond)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		showInstallError("ClipCatch 설치 폴더를 만들 수 없습니다: " + err.Error())

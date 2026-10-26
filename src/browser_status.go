@@ -62,7 +62,7 @@ func (a *App) browserJobStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		result = append(result, browserJobView{ID: j.ID, Status: j.Status, Stage: j.Stage, Percent: p, Mode: j.OutputMode, FileCount: count, ErrorCode: j.ErrorCode})
 	}
-	writeJSON(w, 200, map[string]any{"app": runtimeAppID(), "channel": appChannel, "version": appVersion, "phase": a.state.Phase, "update_required": a.updateRequiredLocked(), "capabilities": []string{"output-mode", "job-status"}, "jobs": result})
+	writeJSON(w, 200, map[string]any{"app": runtimeAppID(), "channel": appChannel, "version": appVersion, "phase": a.state.Phase, "update_required": a.updateRequiredLocked(), "update_checking": a.requireStartupCheck && a.state.AppUpdate.Status == "checking", "capabilities": []string{"output-mode", "job-status"}, "jobs": result})
 }
 func (a *App) browserOpenDownloads(w http.ResponseWriter, r *http.Request) {
 	var in struct{}

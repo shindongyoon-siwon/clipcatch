@@ -23,8 +23,14 @@
  const hero=document.querySelector('.hero'),download=document.querySelector('.main-card'),quality=$('qualityPanel'),extension=$('browserLinkPanel');
  if(!hero||!download||!quality||!extension)return;
  download.id='downloadPanel';
- const banner=el('div');banner.className='trial-banner';banner.id='trialBanner';banner.append(el('strong','ClipCatch v1.9.1 · 영상 다운로드·화질 개선'));
- banner.append(el('span','기존 설정·다운로드 기록은 유지되고, 영상은 다운로드 / ClipCatch에 저장됩니다.'));
+ const banner=el('div');banner.className='trial-banner';banner.id='trialBanner';banner.append(el('strong','ClipCatch v1.9.2 · 영상 다운로드·화질 개선'));
+ const identity=el('span','운영판 확인 중');identity.id='buildIdentity';banner.append(identity);
+ const share=el('button','운영판 공유 링크');share.type='button';share.id='shareStable';share.style.cssText='margin-left:12px;padding:7px 10px;border:1px solid #60754b;border-radius:7px;background:#293426;color:#d9ff57;cursor:pointer';banner.append(share);
+ const shareText=el('input');shareText.readOnly=true;shareText.hidden=true;shareText.setAttribute('aria-label','팀 공유용 운영판 다운로드 링크');shareText.style.cssText='width:100%;margin-top:10px;padding:8px';banner.append(shareText);
+ const stableURL='https://github.com/shindongyoon-siwon/clipcatch/releases/latest/download/ClipCatch.exe';
+ share.onclick=async()=>{shareText.value=stableURL;shareText.hidden=false;try{await navigator.clipboard.writeText(stableURL);share.textContent='공유 링크 복사됨';}catch(_){shareText.focus();shareText.select();}};
+ const oldRender=render;render=function(st){oldRender(st);if(st){const trial=st.channel==='test';identity.textContent=(trial?'TEST2 테스트판 · 이 EXE를 팀에 배포하지 마세요.':'운영판 · 팀에는 오른쪽 공유 링크를 전달해 주세요.');banner.querySelector('strong').textContent='ClipCatch v'+st.version+(trial?' TEST2':' 운영판');}};
+
  hero.before(banner);hero.hidden=true;
  const tabs=el('nav');tabs.className='workspace-tabs';tabs.setAttribute('role','tablist');tabs.setAttribute('aria-label','작업 선택');hero.after(tabs);
  const entries=[['navDownload','영상 다운로드',download],['navQuality','이미지·영상 화질 개선',quality],['navExtension','확장프로그램 다운로드',extension]];

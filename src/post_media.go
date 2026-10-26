@@ -208,13 +208,7 @@ func (a *App) finishPostMedia(id string, ctx context.Context, convert bool) {
 							j.Detail = fmt.Sprintf("%d/%d \u00B7 %s", i+1, count, editStageText(stage))
 						}
 					})
-				}, func(cmd *exec.Cmd) {
-					a.mu.Lock()
-					if a.activeJobID == id {
-						a.activeCmd = cmd
-					}
-					a.mu.Unlock()
-				})
+				}, func(cmd *exec.Cmd) { a.setJobProcess(id, cmd) })
 				if ctx.Err() != nil || a.isJobCancelled(id) {
 					return
 				}

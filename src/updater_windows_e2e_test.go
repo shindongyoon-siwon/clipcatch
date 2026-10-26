@@ -21,6 +21,10 @@ func TestMain(m *testing.M) {
 	if os.Getenv("CLIPCATCH_E2E_UPDATER") == "1" {
 		appChannel = "test"
 		appVersion = "1.9.1-test.5"
+		if os.Getenv("CLIPCATCH_E2E_STABLE") == "1" {
+			appChannel = "stable"
+			appVersion = "1.9.2"
+		}
 		self, _ := os.Executable()
 		if !strings.EqualFold(filepath.Clean(self), filepath.Clean(installedExePath())) {
 			applyClipCatchUpdate([]string{installedExePath(), appVersion})
@@ -29,8 +33,14 @@ func TestMain(m *testing.M) {
 		data, _ := os.ReadFile(self)
 		if strings.HasSuffix(string(data), "TEST2_OLD_EXECUTABLE") {
 			appVersion = "1.9.1-test.3"
+			if os.Getenv("CLIPCATCH_E2E_STABLE") == "1" {
+				appVersion = "1.9.1"
+			}
 		} else if os.Getenv("CLIPCATCH_E2E_BAD_NEW") == "1" {
 			appVersion = "0.0.0-test.0"
+			if os.Getenv("CLIPCATCH_E2E_STABLE") == "1" {
+				appVersion = "0.0.0"
+			}
 		}
 		mux := http.NewServeMux()
 		mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -164,4 +174,92 @@ func stopUpdateFixture(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Error("test-only update fixture did not shut down")
+}
+
+func TestWindowsStableUpdateAndRollback(t *testing.T) {
+	for _, bad := range []bool{false, true} {
+		t.Run(fmt.Sprint(bad), func(t *testing.T) {
+			root := t.TempDir()
+			target := filepath.Join(root, "Programs", "ClipCatch", "ClipCatch.exe")
+			os.MkdirAll(filepath.Dir(target), 0700)
+			self, _ := os.Executable()
+			data, e := os.ReadFile(self)
+			if e != nil {
+				t.Fatal(e)
+			}
+			original := append(append([]byte{}, data...), []byte("TEST2_OLD_EXECUTABLE")...)
+			os.WriteFile(target, original, 0700)
+			trial := filepath.Join(root, "Programs", "ClipCatch-Test2", trialAssetName)
+			os.MkdirAll(filepath.Dir(trial), 0700)
+			os.WriteFile(trial, []byte("KEEP TEST2"), 0600)
+			dd := filepath.Join(root, "ClipCatch")
+			os.MkdirAll(dd, 0700)
+			os.WriteFile(filepath.Join(dd, "history.json"), []byte("KEEP HISTORY"), 0600)
+			ctx, cancel := context.WithTimeout(context.Background(), 65*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, self)
+			cmd.Env = append(os.Environ(), "CLIPCATCH_E2E_UPDATER=1", "CLIPCATCH_E2E_STABLE=1", "LOCALAPPDATA="+root)
+			if bad {
+				cmd.Env = append(cmd.Env, "CLIPCATCH_E2E_BAD_NEW=1")
+			}
+			hideProcessWindow(cmd)
+			if out, e := cmd.CombinedOutput(); e != nil {
+				t.Fatalf("%v %s", e, out)
+			}
+			defer func() {
+				client := http.Client{Timeout: time.Second}
+				for i := 0; i < 40; i++ {
+					resp, e := client.Get("http://127.0.0.1:8765/fixture-stop")
+					if e != nil {
+						time.Sleep(500 * time.Millisecond)
+						return
+					}
+					resp.Body.Close()
+					time.Sleep(250 * time.Millisecond)
+				}
+				t.Error("fixture did not stop")
+			}()
+			version := "1.9.2"
+			status := "verified"
+			if bad {
+				version = "1.9.1"
+				status = "rolled_back"
+			}
+			client := http.Client{Timeout: time.Second}
+			healthy := false
+			for i := 0; i < 40; i++ {
+				resp, e := client.Get("http://127.0.0.1:8765/api/health")
+				if e == nil {
+					var h map[string]string
+					json.NewDecoder(resp.Body).Decode(&h)
+					resp.Body.Close()
+					if h["app"] == "clipcatch" && h["version"] == version {
+						healthy = true
+						break
+					}
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			if !healthy {
+				t.Fatal("stable updater health mismatch")
+			}
+			raw, e := os.ReadFile(filepath.Join(dd, "update-receipt.json"))
+			if e != nil {
+				t.Fatal(e)
+			}
+			var receipt UpdateReceipt
+			json.Unmarshal(raw, &receipt)
+			if receipt.Status != status {
+				t.Fatal(receipt)
+			}
+			kept, _ := os.ReadFile(trial)
+			if string(kept) != "KEEP TEST2" {
+				t.Fatal("stable update modified trial")
+			}
+			kept, _ = os.ReadFile(filepath.Join(dd, "history.json"))
+			if string(kept) != "KEEP HISTORY" {
+				t.Fatal("history changed")
+			}
+		})
+	}
 }

@@ -74,6 +74,12 @@ func (a *App) makeDownloadEditCopy(j *Job, ctx context.Context, ff, source, fold
 	if a.managedDownloadDir(j) && !validPostSource(j.DownloadDir, source) {
 		return editResult{}, errors.New("edit-input")
 	}
+	select {
+	case a.conversionSlots <- struct{}{}:
+		defer func() { <-a.conversionSlots }()
+	case <-ctx.Done():
+		return editResult{}, ctx.Err()
+	}
 	r, e := makeEditCopy(ctx, ff, source, folder, work, progress, process, force...)
 	if e != nil {
 		return r, e

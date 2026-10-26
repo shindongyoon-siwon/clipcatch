@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.9.1"
+	appDefaultVersion = "1.9.2"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -78,6 +78,12 @@ type Job struct {
 }
 
 type ClientState struct {
+	Channel         string          `json:"channel"`
+	DistributionURL string          `json:"distribution_url"`
+	DownloadWorkers int             `json:"download_workers"`
+	QualityWorkers  int             `json:"quality_workers"`
+	UpdateChecking  bool            `json:"update_checking"`
+	ActiveTasks     int             `json:"active_tasks"`
 	UpdateRequired  bool            `json:"update_required"`
 	OutputMode      string          `json:"output_mode"`
 	Version         string          `json:"version"`
@@ -95,47 +101,58 @@ type ClientState struct {
 }
 
 type App struct {
-	qualitySources    map[string]qualitySource
-	premiereSelecting bool
-	browser           browserBridgeState
-	mu                sync.Mutex
-	persistMu         sync.Mutex
-	state             ClientState
-	dataDir           string
-	toolDir           string
-	saveDir           string
-	ytDlp             string
-	ffmpeg            string
-	queue             chan string
-	created           int64
-	mux               *http.ServeMux
-	server            *http.Server
-	activeCmd         *exec.Cmd
-	activeJobID       string
-	activeCancel      context.CancelFunc
-	activeContext     context.Context
-	downloaded        map[string]downloadRecord
-	latestRelease     verifiedRelease
-	redditCookies     []byte
-	engineMeta        EngineMetadata
+	qualitySources      map[string]qualitySource
+	premiereSelecting   bool
+	browser             browserBridgeState
+	mu                  sync.Mutex
+	persistMu           sync.Mutex
+	state               ClientState
+	dataDir             string
+	toolDir             string
+	saveDir             string
+	ytDlp               string
+	ffmpeg              string
+	queue               chan string
+	created             int64
+	mux                 *http.ServeMux
+	server              *http.Server
+	activeRuns          map[string]*jobExecution
+	workerStop          chan struct{}
+	workerOnce          sync.Once
+	stopOnce            sync.Once
+	stopping            bool
+	conversionSlots     chan struct{}
+	downloaded          map[string]downloadRecord
+	latestRelease       verifiedRelease
+	requireStartupCheck bool
+	redditCookies       []byte
+	engineMeta          EngineMetadata
 }
 
 func newApp(dataDir, saveDir string) *App {
 	a := &App{
-		dataDir:    dataDir,
-		toolDir:    filepath.Join(dataDir, "tools"),
-		saveDir:    saveDir,
-		queue:      make(chan string, 150),
-		downloaded: make(map[string]downloadRecord),
+		dataDir:         dataDir,
+		toolDir:         filepath.Join(dataDir, "tools"),
+		saveDir:         saveDir,
+		queue:           make(chan string, 150),
+		activeRuns:      make(map[string]*jobExecution),
+		workerStop:      make(chan struct{}),
+		conversionSlots: make(chan struct{}, 1),
+		downloaded:      make(map[string]downloadRecord),
 	}
 	a.state = ClientState{
-		Version:   appVersion,
-		Phase:     "preparing",
-		SetupText: "다운로드 도구 확인 중...",
-		SaveDir:   saveDir,
-		Jobs:      make([]*Job, 0),
-		AppUpdate: UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
+		Version:         appVersion,
+		Channel:         appChannel,
+		DistributionURL: stableShareURL,
+		DownloadWorkers: downloadWorkers,
+		QualityWorkers:  qualityWorkers,
+		Phase:           "preparing",
+		SetupText:       "다운로드 도구 확인 중...",
+		SaveDir:         saveDir,
+		Jobs:            make([]*Job, 0),
+		AppUpdate:       UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
+	a.loadRequiredUpdate()
 	a.initPremiere()
 	a.initQuality()
 	a.initBrowserBridge()
@@ -197,6 +214,13 @@ func (a *App) routes() {
 		a.mu.Lock()
 		state := a.state
 		state.UpdateRequired = a.updateRequiredLocked()
+		state.UpdateChecking = a.requireStartupCheck && a.state.AppUpdate.Status == "checking"
+		state.ActiveTasks = len(a.activeRuns)
+		if a.latestRelease.Version != "" {
+			state.AppUpdate.Latest = a.latestRelease.Version
+			state.AppUpdate.Notes = a.latestRelease.Notes
+			state.AppUpdate.ReleaseURL = a.latestRelease.ReleaseURL
+		}
 		state.Jobs = make([]*Job, len(a.state.Jobs))
 		for i, j := range a.state.Jobs {
 			copyJob := cloneDownloadJob(j)
@@ -238,12 +262,7 @@ func (a *App) routes() {
 		writeJSON(w, 200, map[string]bool{"ok": true})
 		go func() {
 			time.Sleep(250 * time.Millisecond)
-			a.mu.Lock()
-			active := a.activeCmd
-			a.mu.Unlock()
-			if active != nil && active.Process != nil {
-				_ = active.Process.Kill()
-			}
+			a.stopWork()
 			if a.server != nil {
 				_ = a.server.Close()
 			}
@@ -536,41 +555,40 @@ func (a *App) getJob(id string) *Job {
 }
 
 func (a *App) worker() {
-	for id := range a.queue {
-		for {
-			if a.isJobCancelled(id) {
-				break
-			}
-			a.mu.Lock()
-			phase := a.state.Phase
-			a.mu.Unlock()
-			if phase == "ready" {
-				break
-			}
-			if phase == "error" {
-				a.mutateJob(id, func(j *Job) {
-					if j.Status == "queued" {
-						j.Status = "error"
-						j.Detail = "프로그램 준비 실패: 설정 안내를 확인해 주세요"
-					}
-				})
-				a.saveHistory()
-				break
-			}
-			time.Sleep(400 * time.Millisecond)
-		}
+	a.workerOnce.Do(func() { a.dispatchJobs(a.runReadyJob) })
+}
+func (a *App) runReadyJob(id string) {
+	for {
 		if a.isJobCancelled(id) {
-			continue
+			return
 		}
 		a.mu.Lock()
-		phase := a.state.Phase
+		phase, stopping := a.state.Phase, a.stopping
 		a.mu.Unlock()
-		if phase != "ready" {
-			continue
+		if stopping {
+			return
 		}
-		a.runDownload(id)
-		a.saveHistory()
+		if phase == "ready" {
+			break
+		}
+		if phase == "error" {
+			a.mutateJob(id, func(j *Job) {
+				if j.Status == "queued" {
+					j.Status = "error"
+					j.Detail = "다운로드 도구 준비에 실패했어. 설정을 확인해 줘."
+				}
+			})
+			a.saveHistory()
+			return
+		}
+		select {
+		case <-a.workerStop:
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
+	a.runDownload(id)
+	a.saveHistory()
 }
 
 func (a *App) downloadArgs(j *Job) []string {
@@ -584,6 +602,7 @@ func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool
 	}
 	args := []string{
 		"--ignore-config", "--no-playlist", "--newline", "--progress",
+		"--concurrent-fragments", "2",
 		"--progress-template", "download:CLIP_PROGRESS|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
 		"--print", "before_dl:CLIP_TITLE|%(title)s",
 		"--print", "after_move:CLIP_FILE|%(filepath)s",
@@ -672,11 +691,11 @@ func (a *App) runDownload(id string) {
 	a.mu.Lock()
 	var j *Job
 	for _, item := range a.state.Jobs {
-		if item.ID == id && item.Status == "queued" {
+		if item.ID == id && item.Status == "queued" && !a.stopping && a.activeRuns[id] == nil {
 			item.Status, item.Percent, item.Detail = "downloading", 0, "영상 정보를 가져오는 중..."
-			copyJob := *item
+			copyJob := cloneDownloadJob(item)
 			j = &copyJob
-			a.activeJobID, a.activeContext, a.activeCancel = id, ctx, cancel
+			a.activeRuns[id] = &jobExecution{ctx: ctx, cancel: cancel}
 			break
 		}
 	}
@@ -688,9 +707,7 @@ func (a *App) runDownload(id string) {
 	defer func() {
 		cancel()
 		a.mu.Lock()
-		if a.activeJobID == id {
-			a.activeJobID, a.activeContext, a.activeCancel = "", nil, nil
-		}
+		delete(a.activeRuns, id)
 		a.mu.Unlock()
 	}()
 
@@ -825,15 +842,7 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 			return err, ""
 		}
 	}
-	a.mu.Lock()
-	ctx := a.activeContext
-	if a.activeJobID != id {
-		ctx = nil
-	}
-	a.mu.Unlock()
-	if ctx == nil {
-		ctx = context.Background()
-	}
+	ctx := a.jobContext(id)
 	if err := ctx.Err(); err != nil {
 		return err, "다운로드가 취소되었어."
 	}
@@ -850,16 +859,8 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 	if err := cmd.Start(); err != nil {
 		return err, ""
 	}
-	a.mu.Lock()
-	a.activeCmd = cmd
-	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		if a.activeCmd == cmd {
-			a.activeCmd = nil
-		}
-		a.mu.Unlock()
-	}()
+	a.setJobProcess(id, cmd)
+	defer a.clearJobProcess(id, cmd)
 	var errLines []string
 	var linesMu sync.Mutex
 	var wg sync.WaitGroup
@@ -1305,6 +1306,20 @@ func openBrowser(addr string) {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "--build-info" {
+		path := ""
+		if len(os.Args) == 3 {
+			path = os.Args[2]
+		}
+		if err := writeBuildInfo(path); err != nil {
+			os.Exit(2)
+		}
+		return
+	}
+	if err := validateBuildIdentity(currentBuildIdentity()); err != nil {
+		showInstallError(err.Error())
+		return
+	}
 	if len(os.Args) == 4 && os.Args[1] == "--clipcatch-apply-update" {
 		applyClipCatchUpdate(os.Args[2:])
 		return
@@ -1364,9 +1379,11 @@ func main() {
 		return
 	}
 	a := newApp(dataDir, savedir)
+	a.requireStartupCheck = true
+	defer a.stopWork()
 	a.server = &http.Server{Handler: http.HandlerFunc(a.serveHTTP), ReadHeaderTimeout: 10 * time.Second}
 	go a.bootstrap()
-	go a.checkAppUpdate()
+	go a.watchAppUpdates()
 	go a.worker()
 	addr := "http://" + listener.Addr().String() + "/"
 	log.Println("Web UI running", addr)

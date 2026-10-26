@@ -1,13 +1,15 @@
 import {transferSummary,candidateJobs} from './transfer-state.mjs';
 const $=id=>document.getElementById(id);
 let candidates=[],selected=new Set(),outcomes=new Map(),paired=false,working=false,duplicates=[],polling=false;
-let protocolReady=false;
+let protocolReady=false,updateBlocked=false;
 let latestJobs=[],batchIDs=[],batchFailures=0,hasBatch=false;const itemNodes=new Map();
 function notice(t,error=false){$('status').textContent=t;$('status').classList.toggle('error',error);}
 async function message(m){const r=await chrome.runtime.sendMessage(m);if(!r?.ok){const raw=r?.error||'Request failed';const mismatch=raw==='Unknown request'||String(raw).includes('CC-EXT-VERSION');if(mismatch)$('reloadExtension').hidden=false;const e=Error(mismatch?'확장프로그램 화면과 실행부 버전이 다릅니다. [확장 새로고침]을 누른 뒤 다시 열어 주세요.':raw);e.duplicate=!!r?.duplicate;throw e;}return r.data;}
 function buttons(){
- $('send').disabled=working||!paired||!selected.size;
- $('send').textContent=working?'보내는 중...':selected.size?`선택한 ${selected.size}개 항목 다운로드`:'영상을 선택해 주세요';
+ $('send').disabled=working||!paired||updateBlocked||!selected.size;
+ $('updateApp').hidden=!updateBlocked;
+ $('scan').disabled=working||updateBlocked;
+ $('send').textContent=updateBlocked?'업데이트 후 사용 가능':working?'보내는 중...':selected.size?`선택한 ${selected.size}개 항목 다운로드`:'영상을 선택해 주세요';
  $('selectionCount').textContent=`${selected.size}개 선택`;
  $('selectAll').checked=candidates.length>0&&selected.size===Math.min(10,candidates.length);
  $('outputMode').disabled=working;$('openDownloads').disabled=!paired;
@@ -34,10 +36,10 @@ async function load(){
  protocolReady=false;working=true;buttons();
  try{
   const hello=await message({kind:'hello'});
-  if(hello?.build!=='1.9.1'||hello?.channel!=='stable'){ $('reloadExtension').hidden=false;throw Error('CC-EXT-VERSION: 확장 새로고침 후 다시 열어 주세요.');}
+  if(hello?.build!=='1.9.2'||hello?.channel!=='stable'){ $('reloadExtension').hidden=false;throw Error('CC-EXT-VERSION: 확장 새로고침 후 다시 열어 주세요.');}
   protocolReady=true;$('reloadExtension').hidden=true;
   const preference=await message({kind:'output-mode'});$('outputMode').value=preference.mode;modeNote();
-  const state=await message({kind:'status'});paired=state.paired;$('connectionTitle').textContent=paired?'ClipCatch 연결됨':'처음 한 번 · ClipCatch 연결';if(!paired)$('connection').open=true;$('redditTools').hidden=state.page_type!=='reddit';
+  const state=await message({kind:'status'});paired=state.paired;updateBlocked=!!state.backend?.update_required||!!state.backend?.update_checking;$('connectionTitle').textContent=paired?'ClipCatch 연결됨':'처음 한 번 · ClipCatch 연결';if(!paired)$('connection').open=true;$('redditTools').hidden=state.page_type!=='reddit';
   const data=await message({kind:'list'});candidates=data.candidates;selected=new Set([...selected].filter(k=>candidates.some(c=>c.key===k)));if(candidates.length===1)selected.add(candidates[0].key);
   $('connectionBadge').textContent=state.backend?.error|| (paired?'ClipCatch '+state.backend?.version+' \u00b7 \uc5f0\uacb0\ub428':'ClipCatch\uc640 \uc5f0\uacb0\ud574 \uc8fc\uc138\uc694.');
   notice(data.limited?'불러온 항목 중 최대 40개를 표시합니다.':paired?'':'위에서 ClipCatch와 연결해 주세요.');
@@ -82,7 +84,7 @@ async function refreshJobs(){
  try{
   const r=await message({kind:'queue-status'});
   if(!r.paired){paired=false;buttons();return;}
-  paired=true;$('connectionBadge').textContent='ClipCatch '+r.version+T.sep+T.connected;
+  paired=true;updateBlocked=!!r.update_required||!!r.update_checking;$('connectionBadge').textContent='ClipCatch '+r.version+T.sep+T.connected;
   latestJobs=r.jobs||[];updateInlineStatuses();updateBatchStatus();
   const list=$('transfers');list.replaceChildren();$('transferSection').hidden=!r.jobs.length;
   for(const j of r.jobs){
@@ -98,6 +100,7 @@ async function refreshJobs(){
  }catch(e){paired=false;$('connectionBadge').textContent=e.message;buttons();}finally{polling=false;}
 }
 $('openDownloads').onclick=openDownloads;
+$('updateApp').onclick=async()=>{try{await message({kind:'open-app'});}catch(e){notice(e.message,true);}};
 $('reloadExtension').onclick=()=>chrome.runtime.reload();
 
 const U={"folder": "\uc800\uc7a5 \ud3f4\ub354 \uc5f4\uae30", "preparing": "\ub2e4\uc6b4\ub85c\ub4dc \uc900\ube44 \uc911", "done": "\ub2e4\uc6b4\ub85c\ub4dc \uc644\ub8cc", "failed": "\ub2e4\uc6b4\ub85c\ub4dc \uc2e4\ud328", "needCheck": "\uac1c \ud655\uc778 \ud544\uc694", "files": "\uac1c \ud30c\uc77c \uc800\uc7a5", "unknown": "\uc644\ub8cc \uc5ec\ubd80 \ud655\uc778 \ud544\uc694", "verifying": "\uc800\uc7a5 \uacb0\uacfc \ud655\uc778 \uc911", "pending": "\ub2e4\uc6b4\ub85c\ub4dc \uc9c4\ud589 \ud655\uc778 \uc911", "progress": "\ucc98\ub9ac \uc911", "partial": "\uc77c\ubd80 \uc800\uc7a5 \uc644\ub8cc", "folderFail": "\uc800\uc7a5 \ud3f4\ub354\ub97c \uc5f4\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4."};

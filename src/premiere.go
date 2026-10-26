@@ -329,13 +329,7 @@ func (a *App) finishPremiere(id string, ctx context.Context) {
 				j.Detail = editStageText(stage)
 			}
 		})
-	}, func(cmd *exec.Cmd) {
-		a.mu.Lock()
-		if a.activeJobID == id {
-			a.activeCmd = cmd
-		}
-		a.mu.Unlock()
-	}, j.ForceCompatible)
+	}, func(cmd *exec.Cmd) { a.setJobProcess(id, cmd) }, j.ForceCompatible)
 	if ctx.Err() != nil || a.isJobCancelled(id) {
 		return
 	}

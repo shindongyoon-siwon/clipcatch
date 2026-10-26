@@ -1,3 +1,7 @@
+# ClipCatch v1.9.2
+
+Stable channel/share identity, required updates with release notes, two bounded download workers and one separate AI worker. See [v1.9.2 notes](docs/releases/v1.9.2.md). Existing TEST2 installations are not silently migrated; use the official stable installer.
+
 # ClipCatch v1.9.1
 
 ## ClipCatch v1.9.1 (stable)

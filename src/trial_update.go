@@ -82,6 +82,8 @@ func parseTrialRelease(in githubRelease) (verifiedRelease, error) {
 	base := "https://github.com/" + clipCatchReleaseRepo + "/releases/download/" + in.TagName + "/"
 	seen := map[string]bool{}
 	out.Version = version
+	out.Notes = safeReleaseNotes(in.Body)
+	out.ReleaseURL = "https://github.com/" + clipCatchReleaseRepo + "/releases/tag/" + in.TagName
 	for _, a := range in.Assets {
 		if a.Name != trialAssetName && a.Name != "SHA256SUMS" {
 			continue
