@@ -1,0 +1,39 @@
+name: Materialize approved 1.9.6 release candidate
+on:
+  push:
+    branches: [release/clipcatch-1.9.6]
+    paths: [tools/prepare_release196.py]
+permissions:
+  contents: write
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/release/clipcatch-1.9.6'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: db3ca0446e5a13776f2f12e4368d4eea15c0c31e
+          path: .release-dev
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Materialize only approved functional changes
+        run: |
+          set -euo pipefail
+          python .release-dev/tools/apply_dev196.py
+          gofmt -w .release-dev/src/*.go
+          python .release-dev/tools/apply_speed196.py
+          gofmt -w .release-dev/src/*.go
+          python tools/prepare_release196.py --source .release-dev --target .
+          git diff --check
+      - name: Record source on candidate branch only; no release
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/release/clipcatch-1.9.6
+          git rm .github/workflows/prepare-release196.yml tools/prepare_release196.py
+          git add src tests tools VERSION .gitignore docs
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'release: materialize approved v1.9.6 changes with production identity'
+          git push origin HEAD:refs/heads/release/clipcatch-1.9.6

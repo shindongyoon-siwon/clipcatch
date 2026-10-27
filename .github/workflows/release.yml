@@ -5,83 +5,171 @@ on:
     branches: [main]
   push:
     branches: [main]
-    paths:
-      - "VERSION"
-      - "src/**"
-      - ".github/workflows/release.yml"
+    paths: ['VERSION', 'src/**', 'tests/**', 'tools/**', '.github/workflows/release.yml']
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: clipcatch-release
+  group: clipcatch-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  windows-release:
-    runs-on: windows-latest
+  media-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
         with:
           go-version-file: src/go.mod
+      - name: Prepare actual media fixture tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y ffmpeg mesa-vulkan-drivers libvulkan1
+          mkdir -p "$RUNNER_TEMP/quality-engine" release-evidence
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip -o "$RUNNER_TEMP/quality-engine/engine.zip"
+          echo "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96  $RUNNER_TEMP/quality-engine/engine.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/quality-engine/engine.zip" -d "$RUNNER_TEMP/quality-engine/bin"
+          ENGINE="$(find "$RUNNER_TEMP/quality-engine/bin" -name realesrgan-ncnn-vulkan -type f | head -n 1)"
+          chmod +x "$ENGINE"
+          echo "CLIPCATCH_AI_ENGINE_TEST=$ENGINE" >> "$GITHUB_ENV"
+      - name: Real media, 50-image retention, model equality and race checks
+        working-directory: src
+        env:
+          CLIPCATCH_QUALITY_TEST: '1'
+          CLIPCATCH_EDIT_MEDIA_TEST: '1'
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -timeout=8m -v ./... | tee ../release-evidence/media-regression.log
+          go vet ./...
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClipCatch-release-media-evidence
+          path: release-evidence/
+          retention-days: 30
 
-      - name: Fetch checksum-verified bundled AI runtime
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Original icon and browser test tools
+        shell: pwsh
+        run: |
+          python -m pip install Pillow==11.3.0 playwright==1.55.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $version=(Get-Content VERSION -Raw).Trim()
+          python tools/windows_resources.py --version $version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify bundled runtime and previous stable executable
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p src/quality_bundle
-          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' \
-            https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip \
-            -o src/quality_bundle/windows.zip
+          mkdir -p src/quality_bundle dist release-evidence previous
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip -o src/quality_bundle/windows.zip
           echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  src/quality_bundle/windows.zip' | sha256sum -c -
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/shindongyoon-siwon/clipcatch/releases/download/v1.9.5/ClipCatch.exe -o previous/ClipCatch-1.9.5.exe
+          echo 'df331d554c62bdc544406f63460153c0daae02aa188de2c0a049b2a6c4baa3a5  previous/ClipCatch-1.9.5.exe' | sha256sum -c -
+      - name: Windows unit, installer and rollback regression
+        working-directory: src
+        shell: pwsh
+        run: |
+          go test -tags bundled_ai -count=1 -timeout=8m -v ./... 2>&1 | Tee-Object ../release-evidence/windows-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet -tags bundled_ai ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Browser and extension regression
+        shell: pwsh
+        env:
+          CLIPCATCH_QA_OUTPUT: release-evidence
+        run: |
+          python tests/workspace_ui.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/batch_workspace_offline.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test tests/browser-core.test.mjs tests/feed-core.test.mjs tests/feed-worker.test.mjs tests/transfer-state.test.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build stable executable and verify actual 1.9.5 upgrade
+        shell: pwsh
+        run: |
+          $version=(Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid stable version' }
+          $env:CGO_ENABLED='0'
+          Push-Location src
+          go build -tags bundled_ai -trimpath "-ldflags=-s -w -H windowsgui -X main.appVersion=$version -X main.appChannel=stable" -o ../dist/ClipCatch.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          python tests/windows_release196.py dist/ClipCatch.exe previous/ClipCatch-1.9.5.exe release-evidence
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item release-evidence/candidate-build-info.json dist/build-info.json
+          $v=(Get-Item dist/ClipCatch.exe).VersionInfo
+          if ($v.ProductName -ne 'ClipCatch' -or $v.FileDescription -ne 'ClipCatch' -or $v.FileVersion -ne $version) { throw 'Windows metadata mismatch' }
+          Add-Type -AssemblyName System.Drawing
+          $icon=[System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path dist/ClipCatch.exe).Path)
+          if ($null -eq $icon) { throw 'Missing icon' }
+          $bitmap=$icon.ToBitmap(); $bitmap.Save((Join-Path $pwd 'release-evidence/windows-icon.png')); $bitmap.Dispose(); $icon.Dispose()
+          $hash=(Get-FileHash dist/ClipCatch.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ClipCatch.exe" | Out-File dist/SHA256SUMS -Encoding ascii
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipCatch-verified-stable
+          path: dist/
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClipCatch-release-windows-evidence
+          path: release-evidence/
+          retention-days: 30
 
-      - name: Test and compile Windows executable
-        id: build
-        shell: bash
+  publish:
+    needs: [media-regression, windows-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ClipCatch-verified-stable
+          path: dist
+      - name: Publish only the verified stable build
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VERSION="$(tr -d '\r\n ' < VERSION)"
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid VERSION"; exit 1; }
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          cd src
-          go test -tags bundled_ai ./...
-          go vet -tags bundled_ai ./...
-          mkdir -p ../dist
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags bundled_ai -trimpath \
-            -ldflags="-s -w -H windowsgui -X main.appVersion=$VERSION -X main.appChannel=stable" \
-            -o ../dist/ClipCatch.exe .
-          cd ../dist
-          python - <<'PYI'
-          import json, os, subprocess
-          subprocess.run(['./ClipCatch.exe', '--build-info', 'build-info.json'], check=True, timeout=15)
-          info=json.load(open('build-info.json',encoding='utf-8'))
-          expected=open('../VERSION',encoding='utf-8').read().strip()
-          assert info['app']=='clipcatch' and info['channel']=='stable' and info['version']==expected,info
-          print(info)
-          PYI
-          sha256sum ClipCatch.exe > SHA256SUMS
-          test -s ClipCatch.exe
-
-      - name: Publish new version
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.build.outputs.version }}
-        run: |
-          set -euo pipefail
           TAG="v${VERSION}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists. Bump VERSION before publishing."
-            exit 1
-          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path('dist/build-info.json').read_text())
+          assert d['app']=='clipcatch' and d['channel']=='stable' and d['version']==Path('VERSION').read_text().strip(),d
+          PY
+          (cd dist && sha256sum -c SHA256SUMS)
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "Release $TAG already exists"; exit 1; fi
           NOTES="docs/releases/${TAG}.md"
-          test -s "$NOTES" || { echo 'Release notes are required'; exit 1; }
-          gh release create "$TAG" dist/ClipCatch.exe dist/SHA256SUMS dist/build-info.json \
-            --target "$GITHUB_SHA" --title "ClipCatch $TAG" --draft --notes-file "$NOTES"
+          test -s "$NOTES"
+          gh release create "$TAG" dist/ClipCatch.exe dist/SHA256SUMS dist/build-info.json --target "$GITHUB_SHA" --title "ClipCatch $TAG" --draft --notes-file "$NOTES"
           gh release edit "$TAG" --draft=false --latest
