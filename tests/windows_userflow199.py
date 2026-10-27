@@ -12,7 +12,7 @@ public='--public' in sys.argv[3:]
 version=(Path(__file__).resolve().parents[1]/'VERSION').read_text().strip()
 root=Path(tempfile.mkdtemp(prefix='clipcatch-userflow199-'));base='http://127.0.0.1:8765'
 repo='https://github.com/shindongyoon-siwon/clipcatch'
-hashes={'1.9.6':'c995502a2942c33ede7f836fe1bb7178e72a4598ca127d29e5c80698fb7bbd58','1.9.8':'8477eaa0350d6efd0531a3d0e9dd9b524aa9f5cefd0c0e044927de997e571f40'}
+hashes={'1.9.9':'68c61e89bac6ac465822cb7521b9821d49bffcdcc346c88c43cef183a323fc58','1.9.6':'c995502a2942c33ede7f836fe1bb7178e72a4598ca127d29e5c80698fb7bbd58','1.9.8':'8477eaa0350d6efd0531a3d0e9dd9b524aa9f5cefd0c0e044927de997e571f40'}
 def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
 def get(path):
  with urllib.request.urlopen(base+path,timeout=3) as r:return json.load(r)
@@ -112,7 +112,7 @@ def folder_click(page,path,label):
   errfile.close()
 log=(out/'userflow.log').open('w',encoding='utf-8');results=[]
 cases=[('fresh-ascii',None,'fresh'),('fresh-unicode',None,'fresh')]
-if public:cases=[('198-update-button','1.9.8','button'),('198-new-exe','1.9.8','manual'),('196-update-button','1.9.6','button')]
+if public:cases=[('199-update-button','1.9.9','button'),('199-new-exe','1.9.9','manual'),('198-update-button','1.9.8','button'),('198-new-exe','1.9.8','manual'),('196-update-button','1.9.6','button')]
 try:
  with sync_playwright() as pw:
   browser=pw.chromium.launch(channel='chrome',headless=False)
@@ -138,9 +138,10 @@ try:
     wait(lambda:get('/api/state')['phase']=='ready')
     page.goto(base,wait_until='domcontentloaded')
     if mode=='button':
-     page.locator('#installAppUpdate').wait_for(state='visible',timeout=90000)
+     page.wait_for_function("['requiredUpdateInstall','installAppUpdate'].some(id=>{const e=document.getElementById(id);return e&&!e.disabled&&e.getClientRects().length>0;})",timeout=90000)
+     button=page.locator('#requiredUpdateInstall' if page.locator('#requiredUpdateDialog').is_visible() else '#installAppUpdate')
      with page.expect_request(lambda r:r.url==base+'/api/install-app-update' and r.method=='POST'):
-      page.locator('#installAppUpdate').click()
+      button.click()
     elif mode=='manual':
      manual=subprocess.Popen([str(exe)],env=env,stdout=log,stderr=log);processes.append(manual);assert manual.wait(timeout=45)==0
     if old_version:

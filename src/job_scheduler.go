@@ -109,6 +109,10 @@ func (a *App) stopWork() {
 	a.stopOnce.Do(func() {
 		a.mu.Lock()
 		a.stopping = true
+		a.cancelWorkspaceIdleLocked()
+		if a.updateCheck.cancel != nil {
+			a.updateCheck.cancel()
+		}
 		cancels := make([]context.CancelFunc, 0, len(a.activeRuns))
 		for _, run := range a.activeRuns {
 			cancels = append(cancels, run.cancel)

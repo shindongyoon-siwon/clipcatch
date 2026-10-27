@@ -110,3 +110,7 @@ subprocess.run([sys.executable,str(Path(__file__).with_name('windows_userflow199
 subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update198.py')),str(exe),str(out/'windows_update198')],check=True,timeout=180)
 
 subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update198.py')),str(exe),str(out/'upgrade-from198'),'1.9.8'],check=True,timeout=180)
+
+subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update198.py')),str(exe),str(out/'upgrade-from199'),'1.9.9'],check=True,timeout=180)
+
+subprocess.run([sys.executable,str(Path(__file__).with_name('lifecycle200.py')),str(exe),str(out/'lifecycle200')],check=True,timeout=240)

@@ -26,6 +26,7 @@
  const job=id=>jobs.find(j=>j.id===id),running=j=>j&&['queued','downloading'].includes(j.status),busy=i=>i.uploading||running(job(i.previewID))||running(job(i.saveID));
  const options=i=>({mode:mode.value,scale:Number(scale.value),strength:Number(strength.value),start:i.source?.kind==='video'?Number(start.value):0,seconds:i.source?.kind==='video'?Number(seconds.value):0});
  const key=o=>JSON.stringify([o.mode,o.scale,o.strength,o.start,o.seconds]),matches=i=>i.options&&key(i.options)===key(options(i)),approved=i=>job(i.previewID)?.status==='done'&&matches(i);
+ window.clipcatchHasUnsavedQuality=()=>items.some(i=>job(i.saveID)?.status!=='done');
  function clearComparison(){shown='';comparison.replaceChildren();compareTitle.textContent='';view.hidden=true;}
  function show(i){
   if(!approved(i))return;shown=i.key;comparison.replaceChildren();comparison.classList.remove('pixel-view');view.hidden=false;view.textContent='100% \ud06c\uae30\ub85c \ube44\uad50';compareTitle.textContent=i.source.name;const video=i.source.kind==='video';
