@@ -3,11 +3,19 @@
 package main
 
 import (
- "os/exec"
- "runtime"
+	"os/exec"
+	"runtime"
 )
-func openDirectoryNative(path string)error{
- name:="xdg-open";if runtime.GOOS=="darwin"{name="open"}
- cmd:=exec.Command(name,path);if err:=cmd.Start();err!=nil{return err}
- go func(){_ = cmd.Wait()}();return nil
+
+func openDirectoryNative(path string) error {
+	name := "xdg-open"
+	if runtime.GOOS == "darwin" {
+		name = "open"
+	}
+	cmd := exec.Command(name, path)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

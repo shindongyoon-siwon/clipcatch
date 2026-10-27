@@ -41,3 +41,7 @@ with sync_playwright() as p:
  page.on('dialog',lambda d:d.accept());page.locator('#quitBtn').click();expect(page.locator('#quitStatus')).not_to_be_empty();expect(page.locator('#downloadBtn')).to_have_count(1);assert not errors,errors
  result={'file_picker_event':True,'multiple_files':True,'synthetic_paste':True,'synthetic_drop':True,'queue_cancel_retry':True,'failed_shutdown_not_claimed_successful':True,'javascript_errors':errors}
  (out/'browser-checks.json').write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result));b.close()
+
+# Existing browser regression entrypoint also checks the actual folder button.
+import runpy
+runpy.run_path(str(R/"tests/folder_open_ui.py"),run_name="__main__")

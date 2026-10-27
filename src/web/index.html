@@ -306,7 +306,7 @@
       finally { loading = false; $('downloadBtn').disabled = false; $('downloadBtn').lastChild.textContent = ' 다운로드 시작'; }
     }
     $('downloadBtn').addEventListener('click',submitLinks);
-    $('folderBtn').addEventListener('click', async ()=>{try{await post('/api/open-folder');}catch(e){notice(e.message)}});
+
     $('updateEngineStable').addEventListener('click', async ()=>{
       updateMode='engine';updateRequestError='';$('updateEngineStable').disabled=true;
       showUpdateFeedback('영상 엔진 업데이트를 시작하는 중...', 'working');
@@ -582,5 +582,6 @@
     $('urlInput').focus();
   </script>
 <script src="/browser-link.js"></script>
+<script src="/folder-open.js"></script>
 </body>
 </html>

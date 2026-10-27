@@ -86,11 +86,13 @@ try:
  wait(lambda:not get('/api/state').get('update_checking'),45)
  q=get('/api/quality/status');assert q['engine_bundled']
  job=post('/api/quality/install',{'consent':True})['id'];finished=wait(lambda:next((j for j in get('/api/state')['jobs']if j['id']==job and j['status']in ('done','error')),None),60);assert finished['status']=='done',finished
- assert get('/api/quality/status')['engine_ready'];intact(pins2);stop();intact(pins2)
+ assert get('/api/quality/status')['engine_ready'];intact(pins2)
+ opened=post('/api/open-folder',{});assert opened['ok']and opened['requested']and opened['path']==get('/api/state')['save_dir'],opened
+ stop();intact(pins2)
  for envx in (env,env2):
   startup=Path(envx['APPDATA'])/'Microsoft/Windows/Start Menu/Programs/Startup';assert not startup.exists()or not list(startup.iterdir()),'Startup registration'
  assert not seen,seen
- result={'version':version,'stable_identity':True,'fresh_install':True,'upgrade_from_actual_1_9_5':True,'previous_binary_backup':True,'history_and_output_preference_preserved':True,'saved_original_unchanged':True,'test2_dev196_ports_and_files_untouched':True,'shortcut_creation':True,'existing_workspace_reuse':True,'production_extension_status_available':True,'bundled_ai_verified_and_activated':True,'native_gpu_inference_tested':False,'native_tool_mode':'lifecycle-only stand-ins; real media regression is separate'}
+ result={'version':version,'stable_identity':True,'fresh_install':True,'upgrade_from_actual_1_9_5':True,'previous_binary_backup':True,'history_and_output_preference_preserved':True,'saved_original_unchanged':True,'test2_dev196_ports_and_files_untouched':True,'shortcut_creation':True,'existing_workspace_reuse':True,'production_extension_status_available':True,'bundled_ai_verified_and_activated':True,'native_folder_request_accepted':True,'folder_foreground_focus_asserted':False,'native_gpu_inference_tested':False,'native_tool_mode':'lifecycle-only stand-ins; real media regression is separate'}
  (out/'windows-release-checks.json').write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result))
 finally:
  try:stop()

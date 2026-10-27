@@ -257,17 +257,8 @@ func (a *App) routes() {
 	mux.HandleFunc("POST /api/clear-reddit-cookies", a.clearRedditCookiesHandler)
 	mux.HandleFunc("POST /api/check-app-update", a.checkAppUpdateHandler)
 	mux.HandleFunc("POST /api/install-app-update", a.installAppUpdateHandler)
-	mux.HandleFunc("POST /api/open-folder", func(w http.ResponseWriter, r *http.Request) {
-		if err := os.MkdirAll(a.saveDir, 0755); err != nil {
-			writeError(w, 500, "저장 폴더를 만들 수 없습니다.")
-			return
-		}
-		if err := openFolder(a.saveDir); err != nil {
-			writeError(w, 500, "폴더를 열지 못했습니다: "+err.Error())
-			return
-		}
-		writeJSON(w, 200, map[string]bool{"ok": true})
-	})
+	mux.HandleFunc("POST /api/open-folder", a.openSaveFolder)
+	a.folderRoutes(mux)
 	mux.HandleFunc("POST /api/stop", a.stopHandler)
 	a.workspaceRoutes(mux)
 	a.browserRoutes(mux)
@@ -1321,18 +1312,7 @@ func (a *App) loadHistory() {
 	}
 }
 
-func openFolder(path string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = hiddenCommand("explorer.exe", path)
-	case "darwin":
-		cmd = hiddenCommand("open", path)
-	default:
-		cmd = hiddenCommand("xdg-open", path)
-	}
-	return cmd.Start()
-}
+func openFolder(path string) error { return openDirectory(path) }
 func openBrowser(addr string) {
 	if os.Getenv("CLIPCATCH_NO_BROWSER") == "1" {
 		return
