@@ -427,9 +427,8 @@ func launchManualRepair(source, target string) error {
 	} else if err = verifyManualInstaller(source, rel, digest); err != nil {
 		return err
 	}
-	if err = stopExistingInstanceForUpgrade(); err != nil {
-		return err
-	}
+	// The new helper owns the cross-process lock and discovers exact-path
+	// instances (including legacy alternate ports) before requesting shutdown.
 	cmd := hiddenCommand(installer, "--clipcatch-apply-update", target, rel.Version)
 	if err = cmd.Start(); err != nil {
 		return fmt.Errorf("복구 업데이트를 시작할 수 없습니다: %w", err)
@@ -449,7 +448,12 @@ func (a *App) downloadAndInstall(rel verifiedRelease, target string) {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: "업데이트 검증 실패: " + err.Error()})
 		return
 	}
-	newFile := filepath.Join(a.dataDir, "updates", "new-"+runtimeUpdateAssetName())
+	candidateDir, err := os.MkdirTemp(a.dataDir, "update-candidate-")
+	if err != nil {
+		a.setUpdate(UpdateInfo{Status: "error", Detail: err.Error()})
+		return
+	}
+	newFile := filepath.Join(candidateDir, runtimeUpdateAssetName())
 	if err := os.MkdirAll(filepath.Dir(newFile), 0700); err != nil {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: err.Error()})
 		return
@@ -476,6 +480,10 @@ func (a *App) downloadAndInstall(rel verifiedRelease, target string) {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: "다운로드된 파일이 Windows 실행파일이 아닙니다."})
 		return
 	}
+	if err = verifyInstallerIdentity(newFile, rel.Version); err != nil {
+		a.setUpdate(UpdateInfo{Status: "error", Detail: "Installer identity check failed: " + err.Error()})
+		return
+	}
 	cmd := hiddenCommand(newFile, "--clipcatch-apply-update", target, rel.Version)
 	if err := cmd.Start(); err != nil {
 		a.setUpdate(UpdateInfo{Status: "error", Detail: "업데이트 설치 프로세스를 시작하지 못했습니다: " + err.Error()})
@@ -500,124 +508,21 @@ func readAppChecksum(txt string) (string, error) {
 	return "", errors.New("SHA256SUMS에 ClipCatch.exe 검증값이 없습니다")
 }
 
-// The updater runs from the VERIFIED downloaded executable, not the in-use target.
+// The legacy two-argument command remains compatible with 1.9.5/1.9.6.
 func applyClipCatchUpdate(args []string) {
 	if runtime.GOOS != "windows" || len(args) != 2 {
 		return
 	}
 	target := installedExePath()
-	if !strings.EqualFold(filepath.Clean(args[0]), filepath.Clean(target)) {
+	if !sameUpdatePath(args[0], target) || compareRuntimeVersions(args[1], appVersion) != 0 {
 		return
 	}
-	if compareRuntimeVersions(args[1], appVersion) != 0 {
+	self, e := os.Executable()
+	if e != nil || sameUpdatePath(self, target) {
 		return
 	}
-	self, err := os.Executable()
-	if err != nil {
-		return
-	}
-	if strings.EqualFold(filepath.Clean(self), filepath.Clean(target)) {
-		return
-	}
-	backup := target + ".backup"
-	_ = os.Remove(backup)
-	renamed := false
-	for i := 0; i < 100; i++ {
-		if err := os.Rename(target, backup); err == nil {
-			renamed = true
-			break
-		}
-		time.Sleep(300 * time.Millisecond)
-	}
-	if !renamed {
-		logUpdate("Could not move in-use target: " + target)
-		showInstallError("업데이트 중 파일을 교체하지 못했어. ClipCatch를 완전히 종료한 후 다시 시도해 줘.")
-		return
-	}
-	rollback := func() {
-		// On Windows, the newly started program may take time to release its image file.
-		for i := 0; i < 40; i++ {
-			_ = os.Remove(target)
-			if os.Rename(backup, target) == nil {
-				return
-			}
-			time.Sleep(250 * time.Millisecond)
-		}
-		logUpdate("Rollback could not restore backup; file remains at " + backup)
-	}
-	// Copy instead of renaming a running updater executable.
-	in, err := os.Open(self)
-	if err != nil {
-		rollback()
-		return
-	}
-	temp := target + ".incoming"
-	_ = os.Remove(temp)
-	out, err := os.OpenFile(temp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0700)
-	if err != nil {
-		_ = in.Close()
-		rollback()
-		return
-	}
-	_, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	_ = in.Close()
-	if copyErr != nil || closeErr != nil {
-		_ = os.Remove(temp)
-		rollback()
-		return
-	}
-	if err := os.Rename(temp, target); err != nil {
-		rollback()
-		return
-	}
-	cmd := hiddenCommand(target)
-	if err := cmd.Start(); err != nil {
-		logUpdate("Failed to launch new executable: " + err.Error())
-		rollback()
-		return
-	}
-	pid := cmd.Process.Pid
-	_ = cmd.Process.Release()
-	// Verify the restarted application becomes healthy; otherwise restore the backup.
-	healthy := false
-	client := &http.Client{Timeout: 800 * time.Millisecond}
-	for i := 0; i < 40; i++ {
-		time.Sleep(350 * time.Millisecond)
-		resp, err := client.Get("http://127.0.0.1:" + runtimePort() + "/api/health")
-		if err != nil {
-			continue
-		}
-		var body struct {
-			App     string `json:"app"`
-			Version string `json:"version"`
-		}
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 1024)).Decode(&body)
-		_ = resp.Body.Close()
-		if body.App == runtimeAppID() && body.Version == appVersion {
-			healthy = true
-			break
-		}
-	}
-	if healthy {
-		// Retain the previous working executable until the next update.
-		if err := writeUpdateReceipt(clipCatchDataDir(), "verified", appVersion, "새 버전 실행과 버전 확인까지 완료했어."); err != nil {
-			logUpdate("Cannot save update receipt: " + err.Error())
-		}
-		logUpdate("Updated to " + appVersion)
-	} else {
-		logUpdate("New version did not become healthy; rolling back. pid=" + strconv.Itoa(pid))
-		if runtime.GOOS == "windows" {
-			_ = hiddenCommand("taskkill.exe", "/F", "/PID", strconv.Itoa(pid)).Run()
-		}
-		time.Sleep(500 * time.Millisecond)
-		rollback()
-		_ = writeUpdateReceipt(clipCatchDataDir(), "rolled_back", appVersion, "새 버전 실행 확인에 실패해서 기존 버전으로 복구했어.")
-		old := hiddenCommand(target)
-		_ = old.Start()
-		if old.Process != nil {
-			_ = old.Process.Release()
-		}
+	if e = performSafeUpdate(self, target); e != nil {
+		reportSafeUpdateFailure(e)
 	}
 }
 

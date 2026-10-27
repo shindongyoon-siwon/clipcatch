@@ -65,9 +65,10 @@ try:
  (data/'output-preference.json').write_text('{"mode":"original"}')
  oldproc=subprocess.Popen([str(target)],env=env,stdout=log,stderr=log);processes.append(oldproc)
  wait(lambda:get('/api/health').get('version')=='1.9.5');assert any(j['id']=='preserved-history'for j in get('/api/state')['jobs'])
- stop();oldproc.wait(timeout=15)
+ # Keep the actual old program RUNNING; the new helper must stop and wait.
  identity(exe,env,'candidate')
  subprocess.run([str(exe),'--clipcatch-apply-update',str(target),version],env=env,stdout=log,stderr=log,timeout=45,check=True)
+ oldproc.wait(timeout=15)
  wait(lambda:get('/api/health').get('version')==version)
  receipt=json.loads((data/'update-receipt.json').read_text());assert receipt['status']=='verified'and receipt['version']==version,receipt
  assert digest(target)==digest(exe)and digest(Path(str(target)+'.backup'))==digest(old)
@@ -101,3 +102,5 @@ finally:
   if p.poll()is None:p.terminate();p.wait(timeout=10)
  for s in servers:s.shutdown();s.server_close()
  log.close()
+
+subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update197.py')),str(exe),str(out/'repair197')],check=True,timeout=180)
