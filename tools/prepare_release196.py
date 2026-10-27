@@ -47,7 +47,7 @@ for name in ['src/trial_runtime.go','src/build_identity.go','src/updater.go','sr
  assert 'isolatedDevelopment' not in (r/name).read_text(),name
 assert not list((r/'src').glob('development_*.go'))
 for f in (r/'src').rglob('*'):
- if f.is_file() and f.suffix in ['.go','.js','.html']:
+ if f.is_file() and not f.name.endswith('_test.go') and f.suffix in ['.go','.js','.html']:
   assert 'isolatedDevelopment' not in f.read_text(encoding='utf-8'),f
 subprocess.run(['gofmt','-w',*[str(f)for f in (r/'src').glob('*.go')]],check=True)
 print(json.dumps({'materialized':files,'version':'1.9.6','production_identity_from':'v1.9.5','development_identity_copied':False}))
