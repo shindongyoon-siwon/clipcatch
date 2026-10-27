@@ -1,5 +1,5 @@
 """Real executable/browser lifecycle in a disposable profile; no mocked app API.
-Tool stand-ins isolate startup, not download/media correctness. Windows runs
+Only the downloader is a startup stand-in. Image validation uses real FFmpeg. Windows runs
 against the exact stable EXE artifact; Linux is an additional source-build check.
 """
 import hashlib,json,os,shutil,subprocess,sys,tempfile,time,urllib.request
@@ -15,7 +15,9 @@ data=Path(env['LOCALAPPDATA'] if os.name=='nt' else env['XDG_CONFIG_HOME'])/'Cli
 suffix='.exe' if os.name=='nt' else ''
 fixture=root/'fixture.go';fixture.write_text('package main\nimport "fmt"\nfunc main(){fmt.Println("2026.10.27")}\n')
 subprocess.run(['go','build','-o',str(root/('tool'+suffix)),str(fixture)],check=True,timeout=90)
-for n in ('yt-dlp','ffmpeg','ffprobe'):shutil.copy2(root/('tool'+suffix),tools/(n+suffix))
+# Use the shipped verified bootstrap for FFmpeg/ffprobe. A fake probe would
+# reject the real PNG below, making the unsaved-input test meaningless.
+shutil.copy2(root/('tool'+suffix),tools/('yt-dlp'+suffix))
 preserved=data/'keep-original.txt';preserved.write_text('preserve me')
 log=(out/'lifecycle200.log').open('w',encoding='utf-8');processes=[];results={}
 def get(path):
@@ -32,7 +34,11 @@ def wait(fn,timeout=45):
 def start():
  proc=subprocess.Popen([str(exe)],env=env,stdout=log,stderr=log);processes.append(proc)
  wait(lambda:get('/api/health')['version']==version)
- wait(lambda:get('/api/state')['phase']=='ready' and not get('/api/state')['update_checking'],60)
+ def ready():
+  state=get('/api/state')
+  assert state['phase']!='error',state
+  return state['phase']=='ready' and not state['update_checking']
+ wait(ready,120)
  return proc
 def tabs(n):return get('/api/workspace/status').get('clients')==n
 try:
@@ -90,5 +96,5 @@ finally:
  for proc in processes:
   if proc.poll() is None:proc.terminate();proc.wait(timeout=15)
  log.close()
-report={'version':version,'platform':sys.platform,'artifact_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),'real_user_pc_tested':False,'media_tools':'startup stand-ins only','results':results}
+report={'version':version,'platform':sys.platform,'artifact_sha256':hashlib.sha256(exe.read_bytes()).hexdigest(),'real_user_pc_tested':False,'media_tools':'real FFmpeg/ffprobe from shipped bootstrap; downloader startup stand-in only','results':results}
 (out/'lifecycle200.json').write_text(json.dumps(report,indent=2),encoding='utf-8');print(json.dumps(report))
