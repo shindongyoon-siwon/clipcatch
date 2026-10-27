@@ -21,6 +21,12 @@ window.fetch=async(url,opts={})=>{
  else if(path==='/api/browser-link/status')out={paired:false};
  return new Response(JSON.stringify(out),{status,headers:{'Content-Type':'application/json'}});
 };
+// This about:blank DOM fixture has no server. Native SSE/tab-exit is tested
+// with the actual final executable in lifecycle200.py, not this stand-in.
+window.EventSource=class extends EventTarget {
+ constructor(url){super();window.__qa.sessionURL=url;}
+ close(){}
+};
 Object.defineProperty(navigator,'sendBeacon',{value:()=>true,configurable:true});
 '''
 with sync_playwright() as p:
@@ -28,6 +34,8 @@ with sync_playwright() as p:
  page=b.new_page(viewport={'width':1200,'height':1000});errors=[];page.on('pageerror',lambda e:errors.append(str(e)));page.evaluate(mock)
  page.set_content((W/'index.html').read_text(encoding='utf-8').replace('__APP_VERSION__','1.9.6'))
  for name in ['premiere.js','quality.js','workspace-tabs.js','startup-update.js','lifecycle.js']:page.add_script_tag(content=(W/name).read_text(encoding='utf-8'))
+ assert not errors,errors
+ assert page.evaluate("window.__qa.sessionURL.startsWith('/api/workspace/events?id=')")
  page.locator('#navQuality').click()
  with page.expect_file_chooser() as event:page.locator('#qualityChoose').click()
  chooser=event.value;assert chooser.is_multiple
@@ -38,7 +46,7 @@ with sync_playwright() as p:
  page.locator('#qualityPreview').click();page.wait_for_function('window.__qa.state.jobs.length===4');assert page.evaluate("window.__qa.calls.filter(x=>x.path==='/api/quality/choose').length")==0
  page.evaluate('render(window.__qa.state)');page.locator('.q-actions button').filter(has_text='\ucde8\uc18c').first.click();page.wait_for_function("window.__qa.state.jobs.some(j=>j.status==='cancelled')");page.evaluate('render(window.__qa.state)');expect(page.locator('.q-actions button').filter(has_text='\ub2e4\uc2dc \uc2dc\ub3c4').first).to_be_visible()
  page.screenshot(path=str(out/'batch-workspace-desktop.png'),full_page=True);page.set_viewport_size({'width':390,'height':844});assert page.evaluate('document.documentElement.scrollWidth<=innerWidth');page.screenshot(path=str(out/'batch-workspace-narrow.png'),full_page=True)
- page.on('dialog',lambda d:d.accept());page.locator('#quitBtn').click();expect(page.locator('#quitStatus')).not_to_be_empty();expect(page.locator('#downloadBtn')).to_have_count(1);assert not errors,errors
+ page.on('dialog',lambda d:d.accept());page.locator('#quitBtn').click();expect(page.locator('#quitStatus')).not_to_be_empty();assert page.evaluate("window.__qa.calls.some(c=>c.path==='/api/stop')");expect(page.locator('#downloadBtn')).to_have_count(1);assert not errors,errors
  result={'file_picker_event':True,'multiple_files':True,'synthetic_paste':True,'synthetic_drop':True,'queue_cancel_retry':True,'failed_shutdown_not_claimed_successful':True,'javascript_errors':errors}
  (out/'browser-checks.json').write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result));b.close()
 
