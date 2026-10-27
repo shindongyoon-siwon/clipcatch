@@ -7,8 +7,10 @@ if os.name!='nt':raise SystemExit('Windows required')
 exe,out=map(lambda p:Path(p).resolve(),sys.argv[1:3]);out.mkdir(parents=True,exist_ok=True)
 version=(Path(__file__).resolve().parents[1]/'VERSION').read_text().strip()
 root=Path(tempfile.mkdtemp(prefix='clipcatch-update197-'));base='http://127.0.0.1:8765'
-old=root/'old197.exe';url='https://github.com/shindongyoon-siwon/clipcatch/releases/download/v1.9.7/ClipCatch.exe'
-expected='c59d40e27bc508e672a546371982e6ddb2a3733c46dca67b037cd6755d0fe843'
+old_version=sys.argv[3] if len(sys.argv)>3 else '1.9.7'
+hashes={'1.9.7':'c59d40e27bc508e672a546371982e6ddb2a3733c46dca67b037cd6755d0fe843','1.9.8':'8477eaa0350d6efd0531a3d0e9dd9b524aa9f5cefd0c0e044927de997e571f40'}
+old=root/'old.exe';url=f'https://github.com/shindongyoon-siwon/clipcatch/releases/download/v{old_version}/ClipCatch.exe'
+expected=hashes[old_version]
 for attempt in range(3):
  try:
   with urllib.request.urlopen(url,timeout=60) as r:old.write_bytes(r.read())
@@ -53,7 +55,7 @@ def stop():
  except OSError:pass
 try:
  running=subprocess.Popen([str(target)],env=env,stdout=log,stderr=log);procs.append(running)
- wait(lambda:get('/api/health')['version']=='1.9.7');wait(lambda:get('/api/state')['phase']=='ready')
+ wait(lambda:get('/api/health')['version']==old_version);wait(lambda:get('/api/state')['phase']=='ready')
  args=[str(exe),'--clipcatch-apply-update',str(target),version]
  helpers=[subprocess.Popen(args,env=env,stdout=log,stderr=log)for _ in range(2)];procs+=helpers
  for helper in helpers:assert helper.wait(timeout=60)==0
@@ -68,7 +70,7 @@ try:
  count=len(originals);again=subprocess.Popen(args,env=env,stdout=log,stderr=log);procs.append(again);assert again.wait(timeout=20)==0
  assert len(list(target.parent.glob('ClipCatch.exe.backup-*')))==count
  assert get('/api/health')['version']==version
- (out/'native-update197-checks.json').write_text(json.dumps({'version':version,'actual_197_was_running':True,'graceful_process_exit_confirmed':True,'locked_legacy_backup_preserved':True,'new_previous_binary_preserved':True,'two_concurrent_helpers_safe':True,'repeated_current_helper_no_second_swap':True,'history_preference_original_preserved':True,'real_user_machine_tested':False},indent=2))
+ (out/'native-update197-checks.json').write_text(json.dumps({'version':version,'actual_old_version':old_version,'actual_old_was_running':True,'graceful_process_exit_confirmed':True,'locked_legacy_backup_preserved':True,'new_previous_binary_preserved':True,'two_concurrent_helpers_safe':True,'repeated_current_helper_no_second_swap':True,'history_preference_original_preserved':True,'real_user_machine_tested':False},indent=2))
  print('Native running-1.9.7, locked-backup, concurrent-helper and preservation checks passed')
 finally:
  stop();time.sleep(1)

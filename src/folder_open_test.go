@@ -69,3 +69,19 @@ func TestFolderUIWiredWithoutDuplicateHandler(t *testing.T) {
 		}
 	}
 }
+
+func TestFolderNoHelperOrForegroundLoop(t *testing.T) {
+	main, _ := os.ReadFile("main.go")
+	route, _ := os.ReadFile("folder_open.go")
+	js, _ := pages.ReadFile("web/folder-open.js")
+	for _, token := range []string{"handleFolderFocusCommand", "openDirectoryFocusedNative", "focus_reason", "data.foreground"} {
+		if strings.Contains(string(main)+string(route)+string(js), token) {
+			t.Fatal("old focus path remains", token)
+		}
+	}
+	for _, name := range []string{"folder_focus.go", "folder_focus_windows.go"} {
+		if _, err := os.Stat(name); !os.IsNotExist(err) {
+			t.Fatal("unnecessary helper remains", name)
+		}
+	}
+}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"os"
@@ -44,17 +43,11 @@ func (a *App) openSaveFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer folderOpenLock.Unlock()
-	serveFocusedSaveFolder(w, r, a.saveDir, openDirectoryFocusedNative)
+	serveOpenSaveFolder(w, r, a.saveDir, openDirectoryNative)
 }
 
-// The old error-only adapter remains for the original request/validation tests.
+// Request Explorer directly; do not wait for window discovery or activation.
 func serveOpenSaveFolder(w http.ResponseWriter, r *http.Request, path string, launch func(string) error) {
-	serveFocusedSaveFolder(w, r, path, func(_ context.Context, p string) (folderFocusResult, error) {
-		e := launch(p)
-		return folderFocusResult{Requested: e == nil, Reason: "unverified"}, e
-	})
-}
-func serveFocusedSaveFolder(w http.ResponseWriter, r *http.Request, path string, launch func(context.Context, string) (folderFocusResult, error)) {
 	fail := func(err error) {
 		writeJSON(w, 500, map[string]any{"ok": false, "error": "폴더를 열지 못했어. 아래 경로를 탐색기 주소창에 붙여 넣어 확인해 줘. " + err.Error(), "path": path})
 	}
@@ -67,16 +60,13 @@ func serveFocusedSaveFolder(w http.ResponseWriter, r *http.Request, path string,
 		fail(err)
 		return
 	}
-	result, err := launch(r.Context(), full)
+	err = launch(full)
 	if err != nil {
 		fail(err)
 		return
 	}
-	if !result.Requested {
-		fail(errors.New("folder request was not accepted"))
-		return
-	}
-	writeJSON(w, 200, map[string]any{"ok": true, "requested": true, "path": full, "foreground": result.Foreground, "restored": result.Restored, "reused": result.Reused, "focus_reason": result.Reason})
+	// Start acceptance is not proof that a visible window has appeared.
+	writeJSON(w, 200, map[string]any{"ok": true, "requested": true, "path": full})
 }
 func (a *App) folderRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /folder-open.js", func(w http.ResponseWriter, r *http.Request) {
