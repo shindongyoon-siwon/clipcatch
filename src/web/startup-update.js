@@ -39,7 +39,7 @@
  // A new tab or a return to this page should discover releases without a manual click.
  // The app applies the shared freshness/concurrency guard across all open tabs.
  let automaticTimer=null,automaticRequest=false,lastAutomaticCheckAt=-Infinity;
- const canCheckAutomatically=()=>document.visibilityState!=='hidden'&&!['checking','downloading','installing'].includes(lastState?.app_update?.status);
+ const canCheckAutomatically=()=>document.visibilityState!=='hidden'&&Date.now()>=Number(lastState?.update_next_check_at||0)&&!['checking','downloading','installing'].includes(lastState?.app_update?.status);
  function scheduleAutomaticCheck(){
   if(!canCheckAutomatically()||automaticRequest||automaticTimer!==null)return;
   const delay=Math.max(120,1000-(performance.now()-lastAutomaticCheckAt));
@@ -58,7 +58,10 @@
    }
   },delay);
  }
+ window.addEventListener('clipcatch-open',scheduleAutomaticCheck);
  window.addEventListener('focus',scheduleAutomaticCheck);
+ document.addEventListener('click',e=>{if(e.isTrusted&&!e.target.closest('#quitBtn,#requiredUpdateDialog,#checkAppUpdate,#installAppUpdate'))scheduleAutomaticCheck();},true);
+ document.addEventListener('keydown',e=>{if(e.isTrusted&&!e.repeat)scheduleAutomaticCheck();},true);
  window.addEventListener('pageshow',scheduleAutomaticCheck);
  window.addEventListener('online',scheduleAutomaticCheck);
  document.addEventListener('visibilitychange',scheduleAutomaticCheck);

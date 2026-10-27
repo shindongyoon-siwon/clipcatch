@@ -15,3 +15,9 @@ Approved development source: db3ca0446e5a13776f2f12e4368d4eea15c0c31e.
 The DEV196 branch remains independent; production keeps its existing identity, installer, updater and browser integration.
 
 Rejected scope: first-run explanatory popup, file-open/location buttons, save-folder preferences, automatic startup, cloud hosting and icon redesign.
+
+## v2.0.0
+
+User authorized development and release on 2026-10-27. Baseline: v1.9.9 / 3c001a3681294beac6b3e1b3f8adc2c6f793bc52.
+Approved scope: activity-only stable update discovery, shared/persisted one-hour cooldown, last-tab shutdown with a 15-second grace and active-work protection. Existing updater verification, transactions and release identity remain unchanged.
+Native candidate checks now include running 1.9.9, locked backup/concurrent helpers and real Chrome lifecycle. Published official 1.9.9 button/manual paths are checked separately after release. This is not a claim of testing the design team workstation.

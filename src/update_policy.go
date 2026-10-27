@@ -18,11 +18,9 @@ import (
 )
 
 const (
-	stableUpdateHintURL      = "https://github.com/" + clipCatchReleaseRepo + "/releases/latest/download/build-info.json"
-	backgroundUpdateInterval = 15 * time.Minute
-	// Page-open/resume requests share a short freshness window, independent
-	// of the longer background polling interval.
-	automaticUpdateCooldown = time.Minute
+	stableUpdateHintURL = "https://github.com/" + clipCatchReleaseRepo + "/releases/latest/download/build-info.json"
+	// Stable builds only check on user activity; this is a cooldown, not a timer.
+	automaticUpdateCooldown = time.Hour
 	trialUpdateInterval     = 15 * time.Minute
 )
 
@@ -141,7 +139,7 @@ func (a *App) updateCheckHooksLocked() updateCheckHooks {
 	return hooks
 }
 
-// All tabs and the timer share one claim. The first startup check owns the
+// All user activity events and tabs share one claim. The first startup check owns the
 // initial checking state; subsequent automatic checks leave the UI untouched.
 func (a *App) beginAppUpdateCheck(automatic, initial bool) (*appUpdateCheck, string) {
 	a.mu.Lock()
@@ -158,13 +156,16 @@ func (a *App) beginAppUpdateCheck(automatic, initial bool) (*appUpdateCheck, str
 		return nil, "server_cooldown"
 	}
 	if automatic && now.Before(a.updateCheck.nextAutomatic) {
+		if initial {
+			a.requireStartupCheck = false
+		}
 		return nil, "throttled"
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.updateCheck.generation++
 	a.updateCheck.running = true
 	a.updateCheck.cancel = cancel
-	check := &appUpdateCheck{ctx: ctx, cancel: cancel, generation: a.updateCheck.generation, automatic: automatic, startup: a.requireStartupCheck, trial: isTrialBuild(), started: now, known: a.latestRelease, lastHint: a.updateCheck.lastHint, hooks: hooks}
+	check := &appUpdateCheck{ctx: ctx, cancel: cancel, generation: a.updateCheck.generation, automatic: automatic, startup: initial || a.requireStartupCheck, trial: isTrialBuild(), started: now, known: a.latestRelease, lastHint: a.updateCheck.lastHint, hooks: hooks}
 	if !automatic || check.startup {
 		a.state.AppUpdate = UpdateInfo{Status: "checking", Latest: a.latestRelease.Version, Notes: a.latestRelease.Notes, ReleaseURL: a.latestRelease.ReleaseURL, Detail: "프로그램 새 버전을 확인하는 중"}
 	}
@@ -195,24 +196,12 @@ func (a *App) runAppUpdateCheck(check *appUpdateCheck) {
 }
 
 func updateCheckDelay(trial bool, failures int, full bool) time.Duration {
-	delay := automaticUpdateCooldown
 	if trial {
 		return trialUpdateInterval
 	}
-	if failures > 0 {
-		// Failed official checks start at two minutes. A broken hint never
-		// falls back to the rate-limited release API on every timer tick.
-		if full {
-			delay *= 2
-		}
-		for n := 1; n < failures && delay < trialUpdateInterval; n++ {
-			delay *= 2
-		}
-	}
-	if delay > trialUpdateInterval {
-		delay = trialUpdateInterval
-	}
-	return delay
+	// Failed checks also wait for the next user action after one hour. Explicit
+	// manual checks still work, except when GitHub supplied a Retry-After limit.
+	return automaticUpdateCooldown
 }
 
 func (a *App) finishAppUpdateCheck(check *appUpdateCheck, hint updateHint, rel verifiedRelease, full bool, err error) {
@@ -222,6 +211,7 @@ func (a *App) finishAppUpdateCheck(check *appUpdateCheck, hint updateHint, rel v
 		return
 	}
 	a.updateCheck.running, a.updateCheck.cancel = false, nil
+	defer a.saveActivityUpdateCacheLocked()
 	if a.stopping || updateInProgress(a.state.AppUpdate.Status) {
 		return
 	}
@@ -268,7 +258,7 @@ func (a *App) finishAppUpdateCheck(check *appUpdateCheck, hint updateHint, rel v
 	// A stale automatic API response must not retract a verified update or
 	// erase the reason an attempted installation failed.
 	confirmedWithdrawal := hint.Version != "" && compareSemver(hint.Version, rel.Version) == 0
-	if check.automatic && !check.trial && a.updateRequiredLocked() && compareRuntimeVersions(rel.Version, a.latestRelease.Version) < 0 && !confirmedWithdrawal {
+	if check.automatic && !check.startup && !check.trial && a.updateRequiredLocked() && compareRuntimeVersions(rel.Version, a.latestRelease.Version) < 0 && !confirmedWithdrawal {
 		return
 	}
 	preserve := check.automatic && rel.Version == a.latestRelease.Version && (a.state.AppUpdate.Status == "available" || a.state.AppUpdate.Status == "error")
@@ -382,10 +372,11 @@ func (a *App) saveRequiredUpdate(r verifiedRelease) {
 }
 func (a *App) watchAppUpdates() {
 	a.checkAppUpdate()
-	interval := backgroundUpdateInterval
-	if isTrialBuild() {
-		interval = trialUpdateInterval
+	// No stable background ticker, sleeping update goroutine or idle requests.
+	if !isTrialBuild() {
+		return
 	}
+	interval := trialUpdateInterval
 	a.mu.Lock()
 	newTicker := a.updateHooks.newTicker
 	a.mu.Unlock()

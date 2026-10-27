@@ -15,6 +15,7 @@ type workspaceClient struct {
 }
 
 func (a *App) workspaceRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/workspace/events", a.workspaceEvents)
 	mux.HandleFunc("GET /lifecycle.js", func(w http.ResponseWriter, r *http.Request) {
 		b, e := pages.ReadFile("web/lifecycle.js")
 		if e != nil {
@@ -31,8 +32,9 @@ func (a *App) workspaceRoutes(mux *http.ServeMux) {
 		a.mu.Lock()
 		active := a.pendingTasksLocked()
 		stopping := a.stopping
+		clients := len(a.workspaceStreams)
 		a.mu.Unlock()
-		writeJSON(w, 200, map[string]any{"active": active, "stopping": stopping})
+		writeJSON(w, 200, map[string]any{"active": active, "stopping": stopping, "clients": clients})
 	})
 }
 func (a *App) pendingTasksLocked() int {
@@ -41,6 +43,9 @@ func (a *App) pendingTasksLocked() int {
 		if j != nil && (j.Status == "queued" || j.Status == "downloading") {
 			n++
 		}
+	}
+	if len(a.activeRuns) > n-a.qualityUploads {
+		n = a.qualityUploads + len(a.activeRuns)
 	}
 	if a.premiereSelecting {
 		n++
@@ -80,6 +85,7 @@ func (a *App) workspaceHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 429, "Too many workspaces")
 		return
 	}
+	a.cancelWorkspaceIdleLocked()
 	c.Seen = now
 	if in.Ack == c.Sequence {
 		c.Ack = in.Ack
@@ -106,7 +112,9 @@ func (a *App) workspaceOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Invalid request")
 		return
 	}
+	a.requestActivityUpdateCheck()
 	a.mu.Lock()
+	a.cancelWorkspaceIdleLocked()
 	now := time.Now()
 	id := ""
 	var newest time.Time
@@ -121,6 +129,23 @@ func (a *App) workspaceOpen(w http.ResponseWriter, r *http.Request) {
 		c := a.workspaceClients[id]
 		c.Sequence = a.workspaceSequence
 		a.workspaceClients[id] = c
+		if stream := a.workspaceStreams[id]; stream != nil {
+			select {
+			case stream.open <- struct{}{}:
+			default:
+			}
+		}
+	}
+	// Streams remain live even when browsers throttle hidden tabs.
+	if id == "" {
+		for k, stream := range a.workspaceStreams {
+			id = k
+			select {
+			case stream.open <- struct{}{}:
+			default:
+			}
+			break
+		}
 	}
 	reused := id != ""
 	if !reused {
@@ -128,6 +153,9 @@ func (a *App) workspaceOpen(w http.ResponseWriter, r *http.Request) {
 		if !reused {
 			a.workspaceOpening = now
 		}
+	}
+	if len(a.workspaceStreams) == 0 && a.workspaceWasOpened {
+		a.armWorkspaceIdleLocked(a.workspaceGrace())
 	}
 	a.mu.Unlock()
 	writeJSON(w, 200, map[string]bool{"reused": reused})

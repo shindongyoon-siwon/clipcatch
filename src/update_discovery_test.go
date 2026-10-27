@@ -222,7 +222,7 @@ func TestAutomaticDiscoveryDeduplicatesEventsAndManualChecks(t *testing.T) {
 	}
 }
 
-func TestForegroundDiscoveryDoesNotWaitForBackgroundInterval(t *testing.T) {
+func TestForegroundDiscoveryWaitsOneHourThenNeedsActivity(t *testing.T) {
 	a := discoveryApp(t)
 	current, next := discoveryRelease(t, appVersion), discoveryRelease(t, "9.9.1")
 	hint := discoveryHint(t, next.Version)
@@ -243,94 +243,33 @@ func TestForegroundDiscoveryDoesNotWaitForBackgroundInterval(t *testing.T) {
 	// Repeated page events immediately after startup still share its result.
 	now = started.Add(30 * time.Second)
 	if check, reason := a.beginAppUpdateCheck(true, false); check != nil || reason != "throttled" {
-		t.Fatal("page event bypassed short freshness guard", reason)
+		t.Fatal("page event bypassed one-hour freshness guard", reason)
 	}
-	// Returning to use the app can find a release well before the 15-minute poll.
-	now = started.Add(2 * time.Minute)
+	// Only activity after one hour checks again; elapsed time alone does nothing.
+	now = started.Add(time.Hour)
 	runDiscovery(t, a)
 	if probes != 1 || fetches != 2 || a.latestRelease != next || a.state.AppUpdate.Status != "available" || !a.updateRequiredLocked() {
-		t.Fatal("foreground discovery waited for background cadence", probes, fetches, a.state.AppUpdate)
+		t.Fatal("foreground discovery failed after cooldown", probes, fetches, a.state.AppUpdate)
 	}
 }
 
-func TestBackgroundDiscoveryWaitsFifteenMinutes(t *testing.T) {
+func TestStableUpdateCheckHasNoPeriodicTicker(t *testing.T) {
 	a := discoveryApp(t)
-	current, next := discoveryRelease(t, appVersion), discoveryRelease(t, "9.9.1")
-	hint := discoveryHint(t, next.Version)
-	started := a.updateHooks.now()
-	now := started
-	a.updateHooks.now = func() time.Time { return now }
-	var probes, fetches atomic.Int32
-	probed := make(chan struct{}, 1)
-	a.updateHooks.probe = func(context.Context) (updateHint, error) {
-		probes.Add(1)
-		probed <- struct{}{}
-		return hint, nil
+	current := discoveryRelease(t, appVersion)
+	calls := 0
+	a.updateHooks.fetch = func(context.Context) (verifiedRelease, error) { calls++; return current, nil }
+	a.updateHooks.newTicker = func(time.Duration) (<-chan time.Time, func()) {
+		t.Fatal("stable background ticker created")
+		return nil, func() {}
 	}
-	a.updateHooks.fetch = func(context.Context) (verifiedRelease, error) {
-		if fetches.Add(1) == 1 {
-			return current, nil
-		}
-		return next, nil
+	a.watchAppUpdates()
+	if calls != 1 {
+		t.Fatal("startup check missing", calls)
 	}
-	ticks, created := make(chan time.Time), make(chan time.Duration, 1)
-	var tickerStopped atomic.Bool
-	a.updateHooks.newTicker = func(interval time.Duration) (<-chan time.Time, func()) {
-		created <- interval
-		return ticks, func() { tickerStopped.Store(true) }
-	}
-	done := make(chan struct{})
-	go func() { a.watchAppUpdates(); close(done) }()
-	defer func() {
-		close(a.workerStop)
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Error("update watcher did not stop")
-		}
-		if !tickerStopped.Load() {
-			t.Error("background ticker was not stopped")
-		}
-	}()
-	var interval time.Duration
-	select {
-	case interval = <-created:
-	case <-time.After(2 * time.Second):
-		t.Fatal("background ticker was not created")
-	}
-	nextTick := started.Add(interval)
-	advance := func(elapsed time.Duration) {
-		a.mu.Lock()
-		now = started.Add(elapsed)
-		a.mu.Unlock()
-		for !now.Before(nextTick) {
-			select {
-			case ticks <- nextTick:
-			case <-time.After(2 * time.Second):
-				t.Fatal("watcher did not consume scheduled tick")
-			}
-			select {
-			case <-probed:
-			case <-time.After(2 * time.Second):
-				t.Fatal("scheduled background tick did not check update")
-			}
-			nextTick = nextTick.Add(interval)
-		}
-	}
-	if fetches.Load() != 1 {
-		t.Fatal("startup release check missing")
-	}
-	advance(time.Minute)
-	if probes.Load() != 0 {
-		t.Fatal("background still checks every minute")
-	}
-	advance(15*time.Minute - time.Nanosecond)
-	if probes.Load() != 0 {
-		t.Fatal("background checked before fifteen minutes")
-	}
-	advance(15 * time.Minute)
-	if probes.Load() != 1 {
-		t.Fatal("background did not check at fifteen minutes")
+	// Function has returned. No watcher exists to run when this clock advances.
+	advanceDiscovery(a)
+	if calls != 1 {
+		t.Fatal("idle check occurred")
 	}
 }
 
@@ -397,7 +336,7 @@ func TestAutomaticDiscoveryOfflineBackoffAndRecovery(t *testing.T) {
 		start := a.updateHooks.now()
 		runDiscovery(t, a)
 		delay := a.updateCheck.nextAutomatic.Sub(start)
-		if delay < time.Minute || delay > 15*time.Minute {
+		if delay != time.Hour {
 			t.Fatal("unbounded cooldown", delay)
 		}
 		if check, reason := a.beginAppUpdateCheck(true, false); check != nil || reason != "throttled" {
@@ -449,7 +388,7 @@ func TestAutomaticDiscoveryRetriesAPIAndCDNLagWithoutTrustingHint(t *testing.T) 
 		if a.state.AppUpdate.Status != "current" || a.updateRequiredLocked() || a.latestRelease != known {
 			t.Fatal("hint trusted before full validation")
 		}
-		if delay := a.updateCheck.nextAutomatic.Sub(start); delay < 2*time.Minute || delay > 15*time.Minute {
+		if delay := a.updateCheck.nextAutomatic.Sub(start); delay != time.Hour {
 			t.Fatal("API failure/lag not cooled down", delay)
 		}
 		if w := discoveryRequest(a, `{"automatic":true}`); !strings.Contains(w.Body.String(), "skipped") {
@@ -557,11 +496,11 @@ func TestUpdateServerWaitIsHonoredByAutomaticAndManualDiscovery(t *testing.T) {
 			hint := discoveryHint(t, "9.9.2")
 			a.updateHooks.probe = func(context.Context) (updateHint, error) { return hint, nil }
 			now := a.updateHooks.now()
-			deadline := now.Add(time.Hour)
+			deadline := now.Add(2 * time.Hour)
 			resp := &http.Response{StatusCode: http.StatusTooManyRequests, Header: make(http.Header)}
 			switch mode {
 			case "seconds":
-				resp.Header.Set("Retry-After", "3600")
+				resp.Header.Set("Retry-After", "7200")
 			case "date":
 				resp.Header.Set("Retry-After", deadline.Format(http.TimeFormat))
 			case "reset":

@@ -181,7 +181,7 @@ func (a *App) setUpdate(info UpdateInfo) {
 	a.mu.Unlock()
 }
 func (a *App) checkAppUpdate() {
-	if check, _ := a.beginAppUpdateCheck(false, true); check != nil {
+	if check, _ := a.beginAppUpdateCheck(true, true); check != nil {
 		a.runAppUpdateCheck(check)
 	}
 }
@@ -199,7 +199,7 @@ func (a *App) checkAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	check, reason := a.beginAppUpdateCheck(input.Automatic, false)
 	if reason == "server_cooldown" && !input.Automatic {
-		writeError(w, http.StatusTooManyRequests, "업데이트 서버가 잠시 후 다시 확인하도록 요청했어요. 자동으로 다시 확인할게요.")
+		writeError(w, http.StatusTooManyRequests, "업데이트 서버가 잠시 후 다시 확인하도록 요청했어요. 잠시 후 다시 확인해 주세요.")
 		return
 	}
 	if reason == "busy" && !input.Automatic {

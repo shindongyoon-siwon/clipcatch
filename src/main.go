@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.9.9"
+	appDefaultVersion = "2.0.0"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -78,31 +78,37 @@ type Job struct {
 }
 
 type ClientState struct {
-	Channel         string          `json:"channel"`
-	DistributionURL string          `json:"distribution_url"`
-	DownloadWorkers int             `json:"download_workers"`
-	QualityWorkers  int             `json:"quality_workers"`
-	UpdateChecking  bool            `json:"update_checking"`
-	ActiveTasks     int             `json:"active_tasks"`
-	UpdateRequired  bool            `json:"update_required"`
-	OutputMode      string          `json:"output_mode"`
-	Version         string          `json:"version"`
-	Phase           string          `json:"phase"`
-	SetupText       string          `json:"setup_text"`
-	SetupPct        float64         `json:"setup_pct"`
-	SetupError      string          `json:"setup_error"`
-	SaveDir         string          `json:"save_dir"`
-	Jobs            []*Job          `json:"jobs"`
-	AppUpdate       UpdateInfo      `json:"app_update"`
-	RedditAuthReady bool            `json:"reddit_auth_ready"`
-	UpdateReceipt   *UpdateReceipt  `json:"update_receipt,omitempty"`
-	Engine          EngineInfo      `json:"engine"`
-	Diagnostics     DiagnosticState `json:"diagnostics"`
+	Channel           string          `json:"channel"`
+	DistributionURL   string          `json:"distribution_url"`
+	DownloadWorkers   int             `json:"download_workers"`
+	QualityWorkers    int             `json:"quality_workers"`
+	UpdateNextCheckAt int64           `json:"update_next_check_at"`
+	UpdateChecking    bool            `json:"update_checking"`
+	ActiveTasks       int             `json:"active_tasks"`
+	UpdateRequired    bool            `json:"update_required"`
+	OutputMode        string          `json:"output_mode"`
+	Version           string          `json:"version"`
+	Phase             string          `json:"phase"`
+	SetupText         string          `json:"setup_text"`
+	SetupPct          float64         `json:"setup_pct"`
+	SetupError        string          `json:"setup_error"`
+	SaveDir           string          `json:"save_dir"`
+	Jobs              []*Job          `json:"jobs"`
+	AppUpdate         UpdateInfo      `json:"app_update"`
+	RedditAuthReady   bool            `json:"reddit_auth_ready"`
+	UpdateReceipt     *UpdateReceipt  `json:"update_receipt,omitempty"`
+	Engine            EngineInfo      `json:"engine"`
+	Diagnostics       DiagnosticState `json:"diagnostics"`
 }
 
 type App struct {
 	qualityBatchResults map[string]*qualityBatchResult
 	qualityBatchHooks   qualityBatchHooks
+	workspaceWasOpened  bool
+	workspaceStreams    map[string]*workspaceStream
+	workspaceIdleTimer  *time.Timer
+	workspaceIdleSerial uint64
+	workspaceCloseDelay time.Duration // zero uses the production grace period
 	workspaceClients    map[string]workspaceClient
 	workspaceSequence   uint64
 	workspaceOpening    time.Time
@@ -163,6 +169,7 @@ func newApp(dataDir, saveDir string) *App {
 	}
 	a.workspaceClients = make(map[string]workspaceClient)
 	a.loadRequiredUpdate()
+	a.loadActivityUpdateCache()
 	a.initPremiere()
 	a.initQuality()
 	a.initBrowserBridge()
@@ -223,6 +230,7 @@ func (a *App) routes() {
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		state := a.state
+		state.UpdateNextCheckAt = a.nextActivityCheckLocked().UnixMilli()
 		state.UpdateRequired = a.updateRequiredLocked()
 		state.UpdateChecking = a.startupUpdateCheckingLocked()
 		state.ActiveTasks = len(a.activeRuns)
@@ -1412,7 +1420,7 @@ func main() {
 		return
 	}
 	a := newApp(dataDir, savedir)
-	a.requireStartupCheck = true
+	a.requireStartupCheck = a.state.AppUpdate.Status == "checking"
 	defer a.stopWork()
 	a.server = &http.Server{Handler: http.HandlerFunc(a.serveHTTP), ReadHeaderTimeout: 10 * time.Second}
 	go a.bootstrap()

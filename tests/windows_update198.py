@@ -8,7 +8,7 @@ exe,out=map(lambda p:Path(p).resolve(),sys.argv[1:3]);out.mkdir(parents=True,exi
 version=(Path(__file__).resolve().parents[1]/'VERSION').read_text().strip()
 root=Path(tempfile.mkdtemp(prefix='clipcatch-update197-'));base='http://127.0.0.1:8765'
 old_version=sys.argv[3] if len(sys.argv)>3 else '1.9.7'
-hashes={'1.9.7':'c59d40e27bc508e672a546371982e6ddb2a3733c46dca67b037cd6755d0fe843','1.9.8':'8477eaa0350d6efd0531a3d0e9dd9b524aa9f5cefd0c0e044927de997e571f40'}
+hashes={'1.9.9':'68c61e89bac6ac465822cb7521b9821d49bffcdcc346c88c43cef183a323fc58','1.9.7':'c59d40e27bc508e672a546371982e6ddb2a3733c46dca67b037cd6755d0fe843','1.9.8':'8477eaa0350d6efd0531a3d0e9dd9b524aa9f5cefd0c0e044927de997e571f40'}
 old=root/'old.exe';url=f'https://github.com/shindongyoon-siwon/clipcatch/releases/download/v{old_version}/ClipCatch.exe'
 expected=hashes[old_version]
 for attempt in range(3):
