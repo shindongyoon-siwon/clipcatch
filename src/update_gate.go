@@ -18,7 +18,7 @@ func (a *App) updateGateRequest(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/api/download", "/api/retry-failed", "/api/premiere/convert", "/api/premiere/choose", "/api/quality/choose", "/api/quality/start", "/api/quality/install", "/bridge/page", "/bridge/download":
+	case "/api/download", "/api/retry-failed", "/api/premiere/convert", "/api/premiere/choose", "/api/quality/choose", "/api/quality/upload", "/api/quality/start", "/api/quality/install", "/bridge/page", "/bridge/download":
 	default:
 		return false
 	}

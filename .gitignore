@@ -7,3 +7,11 @@
 cookies*.txt
 reddit-auth-session-*.txt
 dist/
+
+# Generated native resources and release evidence
+src/rsrc*.syso
+src/winres/
+src/quality_bundle/
+release-evidence/
+.release-dev/
+qa-output/
