@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.9.2"
+	appDefaultVersion = "1.9.6"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -101,6 +101,13 @@ type ClientState struct {
 }
 
 type App struct {
+	qualityBatchResults map[string]*qualityBatchResult
+	qualityBatchHooks   qualityBatchHooks
+	workspaceClients    map[string]workspaceClient
+	workspaceSequence   uint64
+	workspaceOpening    time.Time
+	qualityUploads      int
+
 	qualitySources      map[string]qualitySource
 	premiereSelecting   bool
 	browser             browserBridgeState
@@ -154,6 +161,7 @@ func newApp(dataDir, saveDir string) *App {
 		Jobs:            make([]*Job, 0),
 		AppUpdate:       UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
+	a.workspaceClients = make(map[string]workspaceClient)
 	a.loadRequiredUpdate()
 	a.initPremiere()
 	a.initQuality()
@@ -190,7 +198,7 @@ func (a *App) routes() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script><script src=\"/quality.js\"></script><script src=\"/workspace-tabs.js\"></script><script src=\"/startup-update.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
+		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script><script src=\"/quality.js\"></script><script src=\"/workspace-tabs.js\"></script><script src=\"/startup-update.js\"></script><script src=\"/lifecycle.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
 	})
 	// Serve the app's distinctive tab icon from the executable (no extra files needed).
 	for _, asset := range []struct{ path, mediaType string }{
@@ -260,16 +268,8 @@ func (a *App) routes() {
 		}
 		writeJSON(w, 200, map[string]bool{"ok": true})
 	})
-	mux.HandleFunc("POST /api/stop", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]bool{"ok": true})
-		go func() {
-			time.Sleep(250 * time.Millisecond)
-			a.stopWork()
-			if a.server != nil {
-				_ = a.server.Close()
-			}
-		}()
-	})
+	mux.HandleFunc("POST /api/stop", a.stopHandler)
+	a.workspaceRoutes(mux)
 	a.browserRoutes(mux)
 	mux.HandleFunc("GET /browser-link.js", func(w http.ResponseWriter, r *http.Request) {
 		b, err := pages.ReadFile("web/browser-link.js")
@@ -319,7 +319,7 @@ func (a *App) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 	// The web page only controls the downloader listening on this machine.
 	host := r.Host
 	if !strings.HasPrefix(host, "127.0.0.1:") && !strings.HasPrefix(host, "localhost:") {
@@ -1406,13 +1406,17 @@ func main() {
 				showInstallError("이전 테스트판이 실행 중입니다. 테스트판 화면에서 [종료]를 누른 후 다시 실행해 주세요.")
 				return
 			}
-			openBrowser(baseURL + "/")
+			reopenWorkspace(baseURL)
 			return
 		}
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:"+runtimePort())
+	if err != nil && waitForWorkspace(baseURL, 3*time.Second) {
+		reopenWorkspace(baseURL)
+		return
+	}
 	if err != nil && isTrialBuild() {
-		showInstallError("테스트판 연결 포트(18766)가 사용 중입니다. 이전 테스트판을 종료해 주세요. 정식판은 변경하지 않습니다.")
+		showInstallError("ClipCatch " + runtimePort() + ": address in use. No other installation changed.")
 		return
 	}
 	if err != nil {
@@ -1431,7 +1435,13 @@ func main() {
 	go a.worker()
 	addr := "http://" + listener.Addr().String() + "/"
 	log.Println("Web UI running", addr)
-	go func() { time.Sleep(300 * time.Millisecond); openBrowser(addr) }()
+	go func() {
+		if waitForWorkspace(strings.TrimSuffix(addr, "/"), 10*time.Second) {
+			reopenWorkspace(strings.TrimSuffix(addr, "/"))
+		} else {
+			log.Println("Workspace readiness timed out")
+		}
+	}()
 	if err := a.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		log.Println("Web server failure", err)
 	}

@@ -17,6 +17,8 @@ import (
 // random IDs, never arbitrary local paths or remote media URLs.
 func (a *App) initQuality() {
 	a.qualitySources = make(map[string]qualitySource)
+	a.cleanQualityInputs()
+	_ = os.RemoveAll(filepath.Join(a.dataDir, "quality-batches"))
 	root := filepath.Join(a.dataDir, "quality-preview")
 	if entries, e := os.ReadDir(root); e == nil {
 		for _, d := range entries {
@@ -36,6 +38,9 @@ func (a *App) qualityRoutes(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = w.Write(b)
 	})
+	mux.HandleFunc("POST /api/quality/upload", a.uploadQualitySource)
+	mux.HandleFunc("GET /api/quality/sources", a.listQualitySources)
+	mux.HandleFunc("POST /api/quality/release", a.releaseQualitySource)
 	mux.HandleFunc("POST /api/quality/choose", a.chooseQualitySource)
 	mux.HandleFunc("POST /api/quality/start", a.startQualityTask)
 	mux.HandleFunc("POST /api/quality/install", a.queueQualityEngine)
@@ -95,8 +100,10 @@ func (a *App) chooseQualitySource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.mu.Lock()
-	if len(a.qualitySources) >= 20 {
-		a.qualitySources = make(map[string]qualitySource)
+	if len(a.qualitySources) >= qualitySourceLimit {
+		a.mu.Unlock()
+		writeError(w, 429, "Remove an unused item first")
+		return
 	}
 	a.qualitySources[q.ID] = q
 	a.mu.Unlock()
@@ -173,8 +180,11 @@ func (a *App) startQualityTask(w http.ResponseWriter, r *http.Request) {
 	if !in.Preview {
 		approved := false
 		for _, j := range a.state.Jobs {
-			if j.ID == in.ApprovedPreview && j.Task == "quality" && j.Quality != nil && j.Quality.Preview && j.Status == "done" && nonempty(j.File) && time.Now().Unix()-j.Quality.Created < 3600 && qualityFingerprint(*j.Quality) == qualityFingerprint(*task) {
+			if j.ID == in.ApprovedPreview && j.Task == "quality" && j.Quality != nil && j.Quality.Preview && j.Status == "done" && nonempty(j.File) && a.qualityPreviewAvailableLocked(j) && qualityFingerprint(*j.Quality) == qualityFingerprint(*task) {
 				approved = true
+				if q.Kind == "image" {
+					task.ReusePreview = j.ID
+				}
 			}
 		}
 		if !approved {
@@ -184,9 +194,15 @@ func (a *App) startQualityTask(w http.ResponseWriter, r *http.Request) {
 	}
 	active := 0
 	for _, j := range a.state.Jobs {
+		if j.Quality != nil && j.Task == "quality" && j.Quality.Preview == task.Preview && qualityFingerprint(*j.Quality) == qualityFingerprint(*task) {
+			if j.Status == "queued" || j.Status == "downloading" || (!task.Preview && task.ReusePreview != "" && j.Quality.ReusePreview == task.ReusePreview && j.Status == "done" && nonempty(j.File)) {
+				writeJSON(w, 202, map[string]string{"id": j.ID})
+				return
+			}
+		}
 		if j.Status == "queued" || j.Status == "downloading" {
 			active++
-			if j.Task == "quality" || j.Task == "quality-engine" {
+			if j.Task == "quality-engine" {
 				writeError(w, 409, qualityMessage(errors.New("quality-busy")))
 				return
 			}
@@ -202,8 +218,9 @@ func (a *App) startQualityTask(w http.ResponseWriter, r *http.Request) {
 		kind = "\ubcf4\uc815 \uc800\uc7a5"
 	}
 	j := &Job{ID: id, Task: "quality", Quality: task, Host: "PC", OriginalFile: q.Path, Title: q.Name + " - " + kind, Status: "queued", Time: time.Now().Format("2006-01-02 15:04"), Detail: kind + " \ub300\uae30"}
-	a.trimHistoryLocked()
 	a.state.Jobs = append([]*Job{j}, a.state.Jobs...)
+	// Pin the accepted save and its preview before pruning recent history.
+	a.trimHistoryLocked()
 	select {
 	case a.queue <- id:
 		writeJSON(w, 202, map[string]string{"id": id})
@@ -213,6 +230,7 @@ func (a *App) startQualityTask(w http.ResponseWriter, r *http.Request) {
 	}
 }
 func (a *App) runQualityTask(ctx context.Context, id string, j *Job) {
+	defer a.discardQualityBatchResult(id)
 	ctx, stop := context.WithTimeout(ctx, 2*time.Hour)
 	defer stop()
 	defer a.finishQualityDeadline(ctx, id)
@@ -257,6 +275,10 @@ func (a *App) runQualityTask(ctx context.Context, id string, j *Job) {
 	q := task.Source
 	if e := validateQualityOptions(q, o); e != nil {
 		fail(e)
+		return
+	}
+	if q.Kind == "image" && !task.Preview && task.ReusePreview != "" {
+		a.saveQualityImagePreview(ctx, id, task, fail)
 		return
 	}
 	engine := ""
@@ -317,7 +339,26 @@ func (a *App) runQualityTask(ctx context.Context, id string, j *Job) {
 		}
 	}
 	if q.Kind == "image" {
-		e = renderQualityImage(ctx, a.ffmpeg, engine, q.Path, output, work, o, q.Width*o.Scale, q.Height*o.Scale)
+		prepared := ""
+		if o.Mode == "ai" && task.Preview {
+			cached, release := a.takeQualityBatchResult(id, task)
+			if cached == nil {
+				a.prepareQualityImageBatch(id, task, engine)
+				cached, release = a.takeQualityBatchResult(id, task)
+			}
+			defer release()
+			if ctx.Err() != nil || a.isJobCancelled(id) {
+				return
+			}
+			if cached != nil {
+				if cached.err != nil {
+					fail(cached.err)
+					return
+				}
+				prepared = cached.path
+			}
+		}
+		e = renderQualityImagePrepared(ctx, a.ffmpeg, engine, q.Path, output, work, o, q.Width*o.Scale, q.Height*o.Scale, prepared)
 	} else {
 		e = renderQualityVideo(ctx, a.ffmpeg, engine, q, o, output, work, progress)
 	}
@@ -381,7 +422,7 @@ func (a *App) serveQualityPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	j := a.getJob(r.PathValue("id"))
-	if j == nil || j.Task != "quality" || j.Quality == nil || !j.Quality.Preview || j.Status != "done" || time.Now().Unix()-j.Quality.Created > 3600 {
+	if j == nil || j.Task != "quality" || j.Quality == nil || !j.Quality.Preview || j.Status != "done" || !a.qualityPreviewAvailable(j) {
 		http.NotFound(w, r)
 		return
 	}

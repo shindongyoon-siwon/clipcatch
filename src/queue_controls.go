@@ -16,11 +16,12 @@ import (
 const historyLimit = 30
 
 func (a *App) trimHistoryLocked() {
+	protected := a.qualityWorkspaceJobsLocked()
 	kept := a.state.Jobs[:0]
 	terminalCount := 0
 	for _, job := range a.state.Jobs {
 		finished := (job.Status == "done" || job.Status == "error" || job.Status == "cancelled") && a.activeRuns[job.ID] == nil
-		if finished {
+		if finished && !protected[job.ID] {
 			if terminalCount >= historyLimit {
 				continue
 			}
@@ -218,7 +219,7 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		found = true
 		j.Status = "cancelled"
-		j.Detail = "사용자가 다운로드를 취소했어."
+		j.Detail = "사용자가 작업을 취소했습니다."
 		j.Speed, j.ETA = "", ""
 		if run := a.activeRuns[input.ID]; run != nil {
 			stop = run.cancel
@@ -233,6 +234,7 @@ func (a *App) cancelDownloadHandler(w http.ResponseWriter, r *http.Request) {
 	if stop != nil {
 		stop()
 	}
+	a.discardQualityBatchResult(input.ID)
 	a.saveHistory()
 	writeJSON(w, 200, map[string]any{"ok": true, "id": input.ID, "status": "cancelled"})
 }

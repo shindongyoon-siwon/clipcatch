@@ -29,6 +29,8 @@ type qualityOptions struct {
 	Seconds  float64 `json:"seconds"`
 }
 type qualitySource struct {
+	Owned bool `json:"-"`
+
 	ID               string  `json:"id"`
 	Name             string  `json:"name"`
 	Kind             string  `json:"kind"`
@@ -42,6 +44,8 @@ type qualitySource struct {
 	Stamp            int64   `json:"-"`
 }
 type qualityTask struct {
+	ReusePreview string `json:"reuse_preview,omitempty"`
+
 	Options qualityOptions `json:"options"`
 	Source  qualitySource  `json:"source"`
 	Preview bool           `json:"preview"`
@@ -195,12 +199,15 @@ func blendQuality(base, ai, dest string, amount float64) error {
 	return ce
 }
 func qualityAI(ctx context.Context, engine, indir, outdir string) error {
+	return qualityAIWithin(ctx, engine, indir, outdir, 10*time.Minute)
+}
+func qualityAIWithin(ctx context.Context, engine, indir, outdir string, limit time.Duration) error {
 	for _, name := range []string{"realesrgan-x4plus.bin", "realesrgan-x4plus.param"} {
 		if !nonempty(filepath.Join(filepath.Dir(engine), "models", name)) {
 			return errors.New("quality-engine")
 		}
 	}
-	limited, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	limited, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	e := qualityRun(limited, engine, []string{"-i", indir, "-o", outdir, "-n", "realesrgan-x4plus", "-s", "4", "-t", "128", "-m", filepath.Join(filepath.Dir(engine), "models"), "-j", "1:1:1", "-f", "png"}, nil)
 	if e != nil {
@@ -212,6 +219,9 @@ func qualityAI(ctx context.Context, engine, indir, outdir string) error {
 	return nil
 }
 func renderQualityImage(ctx context.Context, ff, engine, source, dest, work string, o qualityOptions, w, h int) error {
+	return renderQualityImagePrepared(ctx, ff, engine, source, dest, work, o, w, h, "")
+}
+func renderQualityImagePrepared(ctx context.Context, ff, engine, source, dest, work string, o qualityOptions, w, h int, prepared string) error {
 	reference := filepath.Join(work, "reference.png")
 	if e := qualityPNG(ctx, ff, source, reference, w, h); e != nil {
 		return e
@@ -219,21 +229,24 @@ func renderQualityImage(ctx context.Context, ff, engine, source, dest, work stri
 	if o.Mode == "resize" {
 		return copyQualityFile(reference, dest)
 	}
-	in := filepath.Join(work, "input")
-	out := filepath.Join(work, "output")
-	os.MkdirAll(in, 0700)
-	os.MkdirAll(out, 0700)
-	if e := qualityPNG(ctx, ff, source, filepath.Join(in, "frame.png"), w/o.Scale, h/o.Scale); e != nil {
-		return e
-	}
-	if pngHasTransparency(filepath.Join(in, "frame.png")) {
-		return errors.New("quality-alpha")
-	}
-	if e := qualityAI(ctx, engine, in, out); e != nil {
-		return e
+	if prepared == "" {
+		in := filepath.Join(work, "input")
+		out := filepath.Join(work, "output")
+		os.MkdirAll(in, 0700)
+		os.MkdirAll(out, 0700)
+		if e := qualityPNG(ctx, ff, source, filepath.Join(in, "frame.png"), w/o.Scale, h/o.Scale); e != nil {
+			return e
+		}
+		if pngHasTransparency(filepath.Join(in, "frame.png")) {
+			return errors.New("quality-alpha")
+		}
+		if e := qualityAI(ctx, engine, in, out); e != nil {
+			return e
+		}
+		prepared = filepath.Join(out, "frame.png")
 	}
 	scaled := filepath.Join(work, "scaled.png")
-	if e := qualityPNG(ctx, ff, filepath.Join(out, "frame.png"), scaled, w, h); e != nil {
+	if e := qualityPNG(ctx, ff, prepared, scaled, w, h); e != nil {
 		return e
 	}
 	return blendQuality(reference, scaled, dest, o.Strength)

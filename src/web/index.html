@@ -343,11 +343,6 @@
     $('installAppUpdate').addEventListener('click',installAppUpdate);
     $('installAppUpdateFooter').addEventListener('click',installAppUpdate);
 
-    $('quitBtn').addEventListener('click', async ()=>{
-      if (!confirm('ClipCatch를 종료할까요? 진행 중인 다운로드도 중단됩니다.')) return;
-      try { await post('/api/stop'); } catch (e) {}
-      document.body.innerHTML = '<div style="color:#f0f4eb;text-align:center;padding:100px 20px;font-family:Segoe UI,Malgun Gothic,sans-serif"><h2>ClipCatch가 종료되었습니다.</h2><p style="color:#9daab7">다시 사용하려면 ClipCatch.exe를 다시 실행해 주세요.</p></div>';
-    });
     function renderJob(j) {
       const elem = document.createElement('div'); elem.className = 'job ' + (['queued','downloading','done','error','cancelled'].includes(j.status)?j.status:'queued');
       const top = document.createElement('div');top.className='job-top';
@@ -583,7 +578,7 @@
         }
       }catch(err){repairMessage('진단 정보 복사 실패 · '+err.message,true);}
     });
-    poll();setInterval(poll,1000);
+    poll();window.clipcatchPollTimer=setInterval(poll,1000);
     $('urlInput').focus();
   </script>
 <script src="/browser-link.js"></script>
