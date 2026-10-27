@@ -1,0 +1,70 @@
+name: Isolated development checks
+
+on:
+  push:
+    branches: [dev/clipcatch-1.9.6-isolated]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clipcatch-isolated-dev
+  cancel-in-progress: true
+
+jobs:
+  windows-test:
+    if: github.ref == 'refs/heads/dev/clipcatch-1.9.6-isolated'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout development copy
+        uses: actions/checkout@v4
+      - name: Export reviewable source snapshot
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dev-artifacts | Out-Null
+          git archive --format=zip --output=dev-artifacts/clipcatch-dev-source.zip HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload development source
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipcatch-dev-source
+          path: dev-artifacts/clipcatch-dev-source.zip
+          retention-days: 7
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Test existing behavior
+        working-directory: src
+        shell: pwsh
+        run: |
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile isolated TEST2 executable
+        working-directory: src
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED='0'
+          go build -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=1.9.6-test.1 -X main.appChannel=test' -o ../dev-artifacts/ClipCatch-Test2.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = (Resolve-Path ../dev-artifacts/ClipCatch-Test2.exe).Path
+          $info = Join-Path (Split-Path $exe) 'build-info.json'
+          $proc = Start-Process -FilePath $exe -ArgumentList @('--build-info', $info) -Wait -PassThru
+          if ($proc.ExitCode -ne 0) { throw 'Build identity read failed' }
+          $identity = Get-Content $info -Raw | ConvertFrom-Json
+          if ($identity.app -ne 'clipcatch-test2' -or $identity.channel -ne 'test' -or $identity.version -ne '1.9.6-test.1') { throw 'Unsafe test build identity' }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ClipCatch-Test2.exe" | Out-File ../dev-artifacts/SHA256SUMS -Encoding ascii
+      - name: Upload test build only
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipCatch-1.9.6-test.1-Windows
+          path: |
+            dev-artifacts/ClipCatch-Test2.exe
+            dev-artifacts/build-info.json
+            dev-artifacts/SHA256SUMS
+          retention-days: 14
