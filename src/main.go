@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.9.8"
+	appDefaultVersion = "1.9.9"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -1342,9 +1342,6 @@ func main() {
 	}
 	if err := validateBuildIdentity(currentBuildIdentity()); err != nil {
 		showInstallError(err.Error())
-		return
-	}
-	if handleFolderFocusCommand() {
 		return
 	}
 	if len(os.Args) == 4 && os.Args[1] == "--clipcatch-apply-update" {

@@ -105,6 +105,8 @@ finally:
 
 subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update197.py')),str(exe),str(out/'repair197')],check=True,timeout=180)
 
-subprocess.run([sys.executable,str(Path(__file__).with_name('windows_folder198.py')),str(exe),str(out/'windows_folder198')],check=True,timeout=180)
+subprocess.run([sys.executable,str(Path(__file__).with_name('windows_userflow199.py')),str(exe),str(out/'browser-folder199')],check=True,timeout=180)
 
 subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update198.py')),str(exe),str(out/'windows_update198')],check=True,timeout=180)
+
+subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update198.py')),str(exe),str(out/'upgrade-from198'),'1.9.8'],check=True,timeout=180)
