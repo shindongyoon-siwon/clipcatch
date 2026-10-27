@@ -3,37 +3,20 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
-	"syscall"
-	"testing"
+ "os"
+ "path/filepath"
+ "strings"
+ "testing"
 )
 
-func TestFolderWindowsUsesVisibleUnicodeShellRequest(t *testing.T) {
-	path := `C:\Users\동윤\Downloads\ClipCatch & 작업 (1)`
-	verb, file, err := folderWindowsArgs(path)
-	if err != nil || syscall.UTF16ToString(verb) != "open" || syscall.UTF16ToString(file) != path || folderShowNormal != 1 {
-		t.Fatal("not a visible exact directory request", err)
-	}
-	for _, n := range []uintptr{0, 2, 3, 5, 31, 32} {
-		if folderShellResult(n) == nil {
-			t.Fatal("shell failure hidden", n)
-		}
-	}
-	if folderShellResult(33) != nil {
-		t.Fatal("successful shell request rejected")
-	}
-}
-func TestFolderNativeWindowsDispatch(t *testing.T) {
-	if os.Getenv("CLIPCATCH_FOLDER_NATIVE_TEST") != "1" {
-		t.Skip("explicit native shell test")
-	}
-	path := filepath.Join(t.TempDir(), "ClipCatch 한글 폴더 (1)")
-	if err := os.MkdirAll(path, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := openDirectory(path); err != nil {
-		t.Fatal(err)
-	}
-	t.Log("Native Unicode directory request accepted; foreground focus is not asserted")
+func TestFolderWindowsDirectVisibleExactArgument(t *testing.T) {
+ path := filepath.Join(t.TempDir(), "\uD55C\uAE00 folder & (1)")
+ if err := os.MkdirAll(path, 0700); err != nil { t.Fatal(err) }
+ cmd, err := folderExplorerCommand(path)
+ if err != nil { t.Fatal(err) }
+ if !filepath.IsAbs(cmd.Path) || !strings.EqualFold(filepath.Base(cmd.Path), "explorer.exe") || len(cmd.Args)!=2 || cmd.Args[1]!=path { t.Fatal(cmd) }
+ if cmd.SysProcAttr != nil || cmd.Cancel != nil { t.Fatal("Explorer must not use hidden/cancellable tool startup") }
+ for _, bad := range []string{"", "bad\x00path", filepath.Join(path,"missing")} {
+  if _,err := folderExplorerCommand(bad); err == nil { t.Fatal("accepted",bad) }
+ }
 }

@@ -1,0 +1,45 @@
+name: Published Windows user-flow verification
+on:
+  workflow_run:
+    workflows: [ClipCatch Windows Release]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  actual-user-paths:
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: ClipCatch-verified-stable
+          path: dist
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Actual published old apps through Chrome update button and downloaded EXE
+        shell: pwsh
+        run: |
+          python -m pip install playwright==1.55.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_userflow199.py dist/ClipCatch.exe public-evidence --public
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClipCatch-published-userflow-evidence
+          path: public-evidence/
+          retention-days: 30

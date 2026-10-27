@@ -3,47 +3,38 @@
 package main
 
 import (
-	"fmt"
-	"runtime"
-	"syscall"
-	"unsafe"
+ "fmt"
+ "os/exec"
+ "path/filepath"
+ "runtime"
+ "syscall"
+ "unsafe"
 )
 
-const folderShowNormal = 1 // SW_SHOWNORMAL, not hidden-tool startup flags.
-var folderShellExecute = syscall.NewLazyDLL("shell32.dll").NewProc("ShellExecuteW")
-var folderCoInit = syscall.NewLazyDLL("ole32.dll").NewProc("CoInitializeEx")
-var folderCoUninit = syscall.NewLazyDLL("ole32.dll").NewProc("CoUninitialize")
+var folderWindowsDirectory = syscall.NewLazyDLL("kernel32.dll").NewProc("GetWindowsDirectoryW")
 
-func folderWindowsArgs(path string) ([]uint16, []uint16, error) {
-	verb, _ := syscall.UTF16FromString("open")
-	file, err := syscall.UTF16FromString(path)
-	return verb, file, err
+func folderExplorerCommand(path string) (*exec.Cmd, error) {
+ full, err := checkedFolderPath(path)
+ if err != nil { return nil, err }
+ // Use the OS directory, not PATH or a user-writable executable beside the app.
+ buf := make([]uint16, 32768)
+ n, _, callErr := folderWindowsDirectory.Call(uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+ runtime.KeepAlive(buf)
+ if n == 0 || n >= uintptr(len(buf)) {
+  return nil, fmt.Errorf("GetWindowsDirectoryW failed: %v", callErr)
+ }
+ explorer := filepath.Join(syscall.UTF16ToString(buf[:n]), "explorer.exe")
+ // One Unicode argument. No shell command string, hidden startup flags,
+ // app helper, COM scan, focus loop, or permanent topmost window.
+ return exec.Command(explorer, full), nil
 }
-func folderShellResult(result uintptr) error {
-	if result > 32 {
-		return nil
-	}
-	return fmt.Errorf("Windows folder open failed (ShellExecuteW code %d)", result)
-}
+
 func openDirectoryNative(path string) error {
-	verb, file, err := folderWindowsArgs(path)
-	if err != nil {
-		return err
-	}
-	for _, p := range []*syscall.LazyProc{folderShellExecute, folderCoInit, folderCoUninit} {
-		if err = p.Find(); err != nil {
-			return err
-		}
-	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	hr, _, _ := folderCoInit.Call(0, 0x2|0x4) // STA and COINIT_DISABLE_OLE1DDE.
-	if uint32(hr) > 1 {
-		return fmt.Errorf("Windows folder connection failed (HRESULT %08x)", uint32(hr))
-	}
-	defer folderCoUninit.Call()
-	result, _, _ := folderShellExecute.Call(0, uintptr(unsafe.Pointer(&verb[0])), uintptr(unsafe.Pointer(&file[0])), 0, 0, folderShowNormal)
-	runtime.KeepAlive(verb)
-	runtime.KeepAlive(file)
-	return folderShellResult(result)
+ cmd, err := folderExplorerCommand(path)
+ if err != nil { return err }
+ if err = cmd.Start(); err != nil { return fmt.Errorf("Explorer start: %w", err) }
+ // Explorer can forward to an existing process or remain running. Its exit
+ // code and lifetime are not a folder-open receipt; only reap our handle.
+ go func() { _ = cmd.Wait() }()
+ return nil
 }
