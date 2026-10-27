@@ -22,7 +22,7 @@ def get(path):
  with urllib.request.urlopen(base+path,timeout=3) as r:return json.load(r)
 def post(path,data):
  request=urllib.request.Request(base+path,data=json.dumps(data).encode(),headers={'Content-Type':'application/json','Origin':base})
- with urllib.request.urlopen(request,timeout=5) as r:return json.load(r)
+ with urllib.request.urlopen(request,timeout=10) as r:return json.load(r)
 def stopped():
  try:get('/api/health');return False
  except OSError:return True
@@ -104,3 +104,7 @@ finally:
  log.close()
 
 subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update197.py')),str(exe),str(out/'repair197')],check=True,timeout=180)
+
+subprocess.run([sys.executable,str(Path(__file__).with_name('windows_folder198.py')),str(exe),str(out/'windows_folder198')],check=True,timeout=180)
+
+subprocess.run([sys.executable,str(Path(__file__).with_name('windows_update198.py')),str(exe),str(out/'windows_update198')],check=True,timeout=180)

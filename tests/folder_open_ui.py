@@ -15,3 +15,6 @@ with sync_playwright() as p:
  page.evaluate("mode='pending';calls=0");page.locator('#folderBtn').click();page.evaluate("document.getElementById('folderBtn').click()");assert page.evaluate('calls')==1
  page.evaluate("done(new Response(JSON.stringify({ok:true,requested:true}),{status:200}))");expect(page.locator('#folderBtn')).to_be_enabled();assert not errors,errors
  print(json.dumps({'folder_api_failure_visible':True,'timeout_recovery':True,'path_fallback':True,'no_html_injection':True,'duplicate_click_blocked':True,'javascript_errors':errors}));b.close()
+
+import runpy
+runpy.run_path(str(root/'tests/folder_focus_ui.py'),run_name='__main__')
