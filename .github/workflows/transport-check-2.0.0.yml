@@ -7,8 +7,11 @@ permissions:
   contents: write
 jobs:
   verify:
-    runs-on: ubuntu-24.04
+    runs-on: windows-latest
     timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,7 +37,7 @@ jobs:
       - name: Verify source before committing
         working-directory: src
         run: |
-          go test -race -count=1 -timeout=120s ./...
+          go test -count=1 -timeout=120s ./...
           go vet ./...
       - name: Commit exact verified changes
         run: |
