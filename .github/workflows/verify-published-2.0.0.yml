@@ -1,0 +1,66 @@
+name: ClipCatch 2.0.0 public-path verification
+on:
+  push:
+    branches: ['qa/2.0.0-public-paths']
+    paths: ['.github/workflows/verify-published-2.0.0.yml']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  public-paths:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 161817a3d15d4d66029fcd35ac21953c3255f94d
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: ClipCatch-verified-stable
+          path: dist
+          run-id: 40521345634
+          github-token: ${{ github.token }}
+      - name: Correct test-only selector for older modal IDs
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          exe=Path('dist/ClipCatch.exe')
+          assert hashlib.sha256(exe.read_bytes()).hexdigest()=='dd7a433e07d8ec3ac2b1eb4ef1917b3c427263b01210a949e68995880399b996'
+          p=Path('tests/windows_userflow199.py')
+          source=p.read_text(encoding='utf-8')
+          old="button=page.locator('#requiredUpdateInstall' if page.locator('#requiredUpdateDialog').is_visible() else '#installAppUpdate')"
+          new="button=page.locator('#requiredUpdateInstall:visible, #installAppUpdate:visible').first\n     expect(button).to_be_visible();expect(button).to_be_enabled()"
+          assert source.count(old)==1
+          source=source.replace(old,new)
+          line="    results.append({'case':label,'from':old_version,'to':version,'update_path':mode,'preservation':True,**sample})"
+          assert source.count(line)==1
+          source=source.replace(line,line+"\n    (out/'completed-cases.json').write_text(json.dumps(results,ensure_ascii=False,indent=2),encoding='utf-8')\n    print(json.dumps(results[-1],ensure_ascii=False),flush=True)")
+          compile(source,str(p),'exec')
+          p.write_text(source,encoding='utf-8')
+          Path('public-evidence').mkdir(exist_ok=True)
+          Path('public-evidence/effective-userflow-test.py').write_text(source,encoding='utf-8')
+          PY
+      - name: Actual published old apps through visible Chrome buttons and downloaded EXE
+        shell: pwsh
+        run: |
+          python -m pip install playwright==1.55.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/windows_userflow199.py dist/ClipCatch.exe public-evidence --public
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClipCatch-2.0.0-published-paths-evidence
+          path: public-evidence/
+          retention-days: 30
