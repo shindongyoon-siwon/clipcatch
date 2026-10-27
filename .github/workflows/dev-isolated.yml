@@ -3,6 +3,7 @@ name: Isolated development checks
 on:
   push:
     branches: [dev/clipcatch-1.9.6-isolated]
+    paths: [dev/BUILD_READY]
   workflow_dispatch:
 
 permissions:
@@ -18,53 +19,85 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout development copy
+      - name: Checkout development copy without write credentials
         uses: actions/checkout@v4
-      - name: Export reviewable source snapshot
+        with:
+          persist-credentials: false
+      - name: Apply reviewable development patches
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dev-artifacts | Out-Null
-          git archive --format=zip --output=dev-artifacts/clipcatch-dev-source.zip HEAD
+          python tools/apply_dev196.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload development source
-        uses: actions/upload-artifact@v4
-        with:
-          name: clipcatch-dev-source
-          path: dev-artifacts/clipcatch-dev-source.zip
-          retention-days: 7
+          New-Item -ItemType Directory -Force dev-artifacts | Out-Null
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: src/go.mod
-      - name: Test existing behavior
+      - name: Prepare original lime icon and Windows metadata
+        shell: pwsh
+        run: |
+          python -m pip install Pillow==11.3.0 playwright==1.55.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/windows_resources.py --version 1.9.6-test.1 --development
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Fetch checksum-verified bundled AI runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/quality_bundle
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip -o src/quality_bundle/windows.zip
+          echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  src/quality_bundle/windows.zip' | sha256sum -c -
+      - name: Existing behavior and isolation regression tests
         working-directory: src
         shell: pwsh
         run: |
-          go test ./...
+          go test -count=1 ./... 2>&1 | Tee-Object ../dev-artifacts/windows-tests.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Compile isolated TEST2 executable
-        working-directory: src
+          go test -tags isolated_dev -run '^TestDevelopment' -v 2>&1 | Tee-Object ../dev-artifacts/isolation-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Browser interaction tests
+        shell: pwsh
+        env:
+          CLIPCATCH_QA_OUTPUT: dev-artifacts
+        run: |
+          python tests/workspace_ui.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/batch_workspace_offline.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build isolated DEV196 and run native Windows checks
         shell: pwsh
         run: |
           $env:CGO_ENABLED='0'
-          go build -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=1.9.6-test.1 -X main.appChannel=test' -o ../dev-artifacts/ClipCatch-Test2.exe .
+          Push-Location src
+          go build -tags 'isolated_dev,bundled_ai' -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=1.9.6-test.1 -X main.appChannel=test' -o ../dev-artifacts/ClipCatch-Dev196.exe .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $exe = (Resolve-Path ../dev-artifacts/ClipCatch-Test2.exe).Path
-          $info = Join-Path (Split-Path $exe) 'build-info.json'
-          $proc = Start-Process -FilePath $exe -ArgumentList @('--build-info', $info) -Wait -PassThru
-          if ($proc.ExitCode -ne 0) { throw 'Build identity read failed' }
-          $identity = Get-Content $info -Raw | ConvertFrom-Json
-          if ($identity.app -ne 'clipcatch-test2' -or $identity.channel -ne 'test' -or $identity.version -ne '1.9.6-test.1') { throw 'Unsafe test build identity' }
-          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  ClipCatch-Test2.exe" | Out-File ../dev-artifacts/SHA256SUMS -Encoding ascii
-      - name: Upload test build only
+          Pop-Location
+          python tests/windows_dev196.py dev-artifacts/ClipCatch-Dev196.exe dev-artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $v=(Get-Item dev-artifacts/ClipCatch-Dev196.exe).VersionInfo
+          if ($v.ProductName -ne 'ClipCatch' -or $v.FileDescription -ne 'ClipCatch DEV196' -or $v.FileVersion -ne '1.9.6-test.1') { throw 'Windows metadata mismatch' }
+          Add-Type -AssemblyName System.Drawing
+          $icon=[System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path dev-artifacts/ClipCatch-Dev196.exe).Path)
+          if ($null -eq $icon) { throw 'No executable icon' }
+          $bitmap=$icon.ToBitmap(); $bitmap.Save((Join-Path $pwd 'dev-artifacts/windows-icon.png')); $bitmap.Dispose(); $icon.Dispose()
+          $hash=(Get-FileHash dev-artifacts/ClipCatch-Dev196.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ClipCatch-Dev196.exe" | Out-File dev-artifacts/SHA256SUMS -Encoding ascii
+          python tools/export_dev_source.py dev-artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload candidate and evidence only; never publish a release
         uses: actions/upload-artifact@v4
         with:
-          name: ClipCatch-1.9.6-test.1-Windows
-          path: |
-            dev-artifacts/ClipCatch-Test2.exe
-            dev-artifacts/build-info.json
-            dev-artifacts/SHA256SUMS
+          name: ClipCatch-Dev196-tested-Windows
+          path: dev-artifacts/
           retention-days: 14
+      - name: Upload diagnostic logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipCatch-Dev196-failed-checks
+          path: dev-artifacts/*.log
+          retention-days: 7
