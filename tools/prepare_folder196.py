@@ -1,4 +1,6 @@
-"""Integrate the approved existing folder-button repair on the release candidate only."""
+"""Integrate the approved existing folder-button repair on the release candidate only.
+Do not edit workflow definitions; existing native/browser test entrypoints cover it.
+"""
 from pathlib import Path
 r=Path(__file__).resolve().parents[1]
 assert (r/'VERSION').read_text().strip()=='1.9.6'
@@ -11,9 +13,7 @@ assert 'hiddenCommand("explorer.exe", path)'in s[a:b]
 s=s[:a]+'func openFolder(path string) error { return openDirectory(path) }\n'+s[b:];p.write_text(s,encoding='utf-8')
 p=r/'src/web/index.html';s=p.read_text(encoding='utf-8');old="    $('folderBtn').addEventListener('click', async ()=>{try{await post('/api/open-folder');}catch(e){notice(e.message)}});"
 assert s.count(old)==1;s=s.replace(old,'');assert s.count('</body>')==1;s=s.replace('</body>','<script src="/folder-open.js"></script>\n</body>');p.write_text(s,encoding='utf-8')
-p=r/'.github/workflows/release.yml';s=p.read_text(encoding='utf-8');s=s.replace("      PYTHONUTF8: '1'","      PYTHONUTF8: '1'\n      CLIPCATCH_FOLDER_NATIVE_TEST: '1'")
-old='          python tests/batch_workspace_offline.py\n          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }';assert s.count(old)==1;s=s.replace(old,old+'\n          python tests/folder_open_ui.py\n          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }')
-old='          Copy-Item release-evidence/candidate-build-info.json dist/build-info.json';assert s.count(old)==1;s=s.replace(old,old+'\n          git archive --format=zip --output=release-evidence/ClipCatch-source.zip HEAD\n          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }');p.write_text(s,encoding='utf-8')
+p=r/'tests/batch_workspace_offline.py';s=p.read_text(encoding='utf-8');assert 'folder_open_ui.py'not in s;s+='\n# Existing browser regression entrypoint also checks the actual folder button.\nimport runpy\nrunpy.run_path(str(R/"tests/folder_open_ui.py"),run_name="__main__")\n';p.write_text(s,encoding='utf-8')
 p=r/'tests/windows_release196.py';s=p.read_text(encoding='utf-8');old=" assert get('/api/quality/status')['engine_ready'];intact(pins2);stop();intact(pins2)";assert s.count(old)==1
 s=s.replace(old," assert get('/api/quality/status')['engine_ready'];intact(pins2)\n opened=post('/api/open-folder',{});assert opened['ok']and opened['requested']and opened['path']==get('/api/state')['save_dir'],opened\n stop();intact(pins2)")
 s=s.replace("'native_gpu_inference_tested':False","'native_folder_request_accepted':True,'folder_foreground_focus_asserted':False,'native_gpu_inference_tested':False");p.write_text(s,encoding='utf-8')
