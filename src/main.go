@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	appDefaultVersion = "1.9.6"
+	appDefaultVersion = "1.9.7"
 	appName           = "ClipCatch"
 	ffmpegURL         = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
 	ytDlpURL          = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
@@ -1348,6 +1348,9 @@ func main() {
 		applyClipCatchUpdate(os.Args[2:])
 		return
 	}
+	if runtime.GOOS == "windows" && updateLaunchGate() {
+		return
+	}
 	if installAndRelaunch() {
 		return
 	}
@@ -1399,8 +1402,10 @@ func main() {
 		showInstallError("ClipCatch " + runtimePort() + ": address in use. No other installation changed.")
 		return
 	}
+	// Do not create a hidden second instance on an untracked random port.
 	if err != nil {
-		listener, err = net.Listen("tcp", "127.0.0.1:0")
+		showInstallError("ClipCatch address is occupied. No second instance or update was started.")
+		return
 	}
 	if err != nil {
 		log.Println("Cannot start local web server:", err)
