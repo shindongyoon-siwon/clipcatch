@@ -8,7 +8,7 @@ import (
 )
 
 func TestRelease196StableIdentityAndUnchangedUpdatePolicy(t *testing.T) {
-	if appChannel != "stable" || appDefaultVersion != "1.9.7" || runtimeAppID() != "clipcatch" || runtimePort() != "8765" || runtimeDataName() != "ClipCatch" {
+	if appChannel != "stable" || appDefaultVersion != "1.9.8" || runtimeAppID() != "clipcatch" || runtimePort() != "8765" || runtimeDataName() != "ClipCatch" {
 		t.Fatal("mixed release identity")
 	}
 	b := currentBuildIdentity()
