@@ -1,0 +1,102 @@
+name: DEV196 unsaved result protection checks
+
+on:
+  push:
+    branches: [dev/clipcatch-1.9.6-isolated]
+    paths: [dev/RETENTION_READY]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clipcatch-dev-retention
+  cancel-in-progress: true
+
+jobs:
+  real-media:
+    if: github.ref == 'refs/heads/dev/clipcatch-1.9.6-isolated'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Prepare approved development source and PNG test tools
+        run: |
+          set -euo pipefail
+          python tools/apply_dev196.py
+          gofmt -w src/*.go
+          python tools/apply_speed196.py
+          gofmt -w src/*.go
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y ffmpeg
+          mkdir -p evidence
+      - name: Fifty-image retention, failure, cancellation and regression tests
+        working-directory: src
+        env:
+          CLIPCATCH_QUALITY_TEST: '1'
+          CLIPCATCH_EDIT_MEDIA_TEST: '1'
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -timeout=6m -v ./... | tee ../evidence/regression.log
+          go vet ./...
+          go test -tags isolated_dev -run '^TestDevelopment' -v | tee ../evidence/isolation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DEV196-retention-media-evidence
+          path: evidence/
+          retention-days: 14
+
+  windows:
+    if: github.ref == 'refs/heads/dev/clipcatch-1.9.6-isolated'
+    runs-on: windows-latest
+    timeout-minutes: 12
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Prepare development source without installation or release
+        shell: pwsh
+        run: |
+          python tools/apply_dev196.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem src/*.go | ForEach-Object { gofmt -w $_.FullName }
+          python tools/apply_speed196.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem src/*.go | ForEach-Object { gofmt -w $_.FullName }
+          New-Item -ItemType Directory -Force evidence | Out-Null
+      - name: Windows unit checks and development identity
+        working-directory: src
+        shell: pwsh
+        run: |
+          go test -count=1 -timeout=4m -v ./... 2>&1 | Tee-Object ../evidence/windows-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -tags isolated_dev -run '^TestDevelopment' -v 2>&1 | Tee-Object ../evidence/windows-isolation.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:CGO_ENABLED='0'
+          $exe=Join-Path $env:RUNNER_TEMP 'ClipCatch-retention-check.exe'
+          go build -tags isolated_dev -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=1.9.6-test.2 -X main.appChannel=test' -o $exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $info=Join-Path (Resolve-Path ../evidence) 'build-info.json'
+          $p=Start-Process -FilePath $exe -ArgumentList @('--build-info', $info) -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw 'Identity check failed' }
+          $identity=Get-Content $info -Raw | ConvertFrom-Json
+          if ($identity.app -ne 'clipcatch-dev196' -or $identity.channel -ne 'test' -or $identity.share_url) { throw 'Unexpected production identity' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DEV196-retention-Windows-evidence
+          path: evidence/
+          retention-days: 14

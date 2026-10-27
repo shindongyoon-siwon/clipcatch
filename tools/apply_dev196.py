@@ -85,4 +85,11 @@ edit('src/quality.go',old,new)
 edit('src/quality.go','engine := ""\n\tif o.Mode == "ai" {','if q.Kind=="image" && !task.Preview && task.ReusePreview!="" { a.saveQualityImagePreview(ctx,id,task,fail); return }\n\tengine := ""\n\tif o.Mode == "ai" {')
 edit('src/update_gate.go','"/api/quality/choose",','"/api/quality/choose", "/api/quality/upload",')
 edit('src/queue_controls.go','j.Detail = "\uc0ac\uc6a9\uc790\uac00 \ub2e4\uc6b4\ub85c\ub4dc\ub97c \ucde8\uc18c\ud588\uc5b4."','j.Detail = "\uc0ac\uc6a9\uc790\uac00 \uc791\uc5c5\uc744 \ucde8\uc18c\ud588\uc2b5\ub2c8\ub2e4."')
+# Keep current workspace results separate from the bounded recent-history list.
+edit('src/queue_controls.go','func (a *App) trimHistoryLocked() {\n\tkept :=','func (a *App) trimHistoryLocked() {\n\tprotected := a.qualityWorkspaceJobsLocked()\n\tkept :=')
+edit('src/queue_controls.go','\t\tif finished {\n','\t\tif finished && !protected[job.ID] {\n')
+edit('src/quality.go','time.Now().Unix()-j.Quality.Created < 3600 && qualityFingerprint','a.qualityPreviewAvailableLocked(j) && qualityFingerprint')
+edit('src/quality.go','\ta.trimHistoryLocked()\n\ta.state.Jobs = append([]*Job{j}, a.state.Jobs...)','\ta.state.Jobs = append([]*Job{j}, a.state.Jobs...)\n\t// Pin the accepted save and its preview before pruning recent history.\n\ta.trimHistoryLocked()')
+edit('src/quality.go','time.Now().Unix()-j.Quality.Created > 3600','!a.qualityPreviewAvailable(j)')
+
 print('Applied readable DEV196 changes to development working copy only')
