@@ -1,0 +1,146 @@
+name: DEV196 image startup reuse checks
+on:
+  push:
+    branches: [dev/clipcatch-1.9.6-isolated]
+    paths: [dev/SPEED_READY]
+permissions:
+  contents: read
+concurrency:
+  group: clipcatch-dev196-speed
+  cancel-in-progress: true
+jobs:
+  real-media:
+    if: github.ref == 'refs/heads/dev/clipcatch-1.9.6-isolated'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Prepare reviewable development source and media tools
+        run: |
+          set -euo pipefail
+          python tools/apply_dev196.py
+          gofmt -w src/*.go
+          python tools/apply_speed196.py
+          gofmt -w src/*.go
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y ffmpeg mesa-vulkan-drivers libvulkan1
+      - name: Verify official AI fixture runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/quality-engine"
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip -o "$RUNNER_TEMP/quality-engine/engine.zip"
+          echo "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96  $RUNNER_TEMP/quality-engine/engine.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/quality-engine/engine.zip" -d "$RUNNER_TEMP/quality-engine/bin"
+          ENGINE="$(find "$RUNNER_TEMP/quality-engine/bin" -name realesrgan-ncnn-vulkan -type f | head -n 1)"
+          chmod +x "$ENGINE"
+          echo "CLIPCATCH_AI_ENGINE_TEST=$ENGINE" >> "$GITHUB_ENV"
+      - name: Real model equality, cancellation, bounded batching and regression
+        working-directory: src
+        env:
+          CLIPCATCH_QUALITY_TEST: '1'
+          CLIPCATCH_EDIT_MEDIA_TEST: '1'
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -v ./... | tee ../speed-media-tests.log
+          go vet ./...
+          go test -tags isolated_dev -run '^TestDevelopment' -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: DEV196-test2-speed-media-evidence
+          path: speed-media-tests.log
+          retention-days: 14
+
+  windows:
+    if: github.ref == 'refs/heads/dev/clipcatch-1.9.6-isolated'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Apply reviewed development-only changes
+        shell: pwsh
+        run: |
+          python tools/apply_dev196.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem src/*.go | ForEach-Object { gofmt -w $_.FullName }
+          python tools/apply_speed196.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem src/*.go | ForEach-Object { gofmt -w $_.FullName }
+          New-Item -ItemType Directory -Force dev-artifacts | Out-Null
+      - name: Original icon and browser test tools
+        shell: pwsh
+        run: |
+          python -m pip install Pillow==11.3.0 playwright==1.55.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tools/windows_resources.py --version 1.9.6-test.2 --development
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify bundled official AI runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/quality_bundle
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip -o src/quality_bundle/windows.zip
+          echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  src/quality_bundle/windows.zip' | sha256sum -c -
+      - name: Windows unit and isolation checks
+        working-directory: src
+        shell: pwsh
+        run: |
+          go test -count=1 ./... 2>&1 | Tee-Object ../dev-artifacts/windows-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -tags isolated_dev -run '^TestDevelopment' -v 2>&1 | Tee-Object ../dev-artifacts/isolation-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Browser regression checks
+        shell: pwsh
+        env:
+          CLIPCATCH_QA_OUTPUT: dev-artifacts
+        run: |
+          python tests/workspace_ui.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/batch_workspace_offline.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build isolated test.2 and verify native Windows lifecycle
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED='0'
+          Push-Location src
+          go build -tags 'isolated_dev,bundled_ai' -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=1.9.6-test.2 -X main.appChannel=test' -o ../dev-artifacts/ClipCatch-Dev196.exe .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+          python tests/windows_dev196.py dev-artifacts/ClipCatch-Dev196.exe dev-artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $v=(Get-Item dev-artifacts/ClipCatch-Dev196.exe).VersionInfo
+          if ($v.ProductName -ne 'ClipCatch' -or $v.FileDescription -ne 'ClipCatch DEV196' -or $v.FileVersion -ne '1.9.6-test.2') { throw 'Unexpected executable identity' }
+          $hash=(Get-FileHash dev-artifacts/ClipCatch-Dev196.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ClipCatch-Dev196.exe" | Out-File dev-artifacts/SHA256SUMS -Encoding ascii
+          python tools/export_dev_source.py dev-artifacts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipCatch-Dev196-test2-speed-Windows
+          path: dev-artifacts/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: DEV196-test2-failed-checks
+          path: dev-artifacts/*.log
+          retention-days: 7
