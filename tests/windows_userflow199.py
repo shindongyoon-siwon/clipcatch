@@ -60,27 +60,37 @@ if public:
  asset=next(a for a in release['assets'] if a['name']=='ClipCatch.exe')
  assert asset['digest']=='sha256:'+sha(exe),'Public release is not the tested artifact'
 # Independent observation is QA-only. Shipped app contains no COM scan or PowerShell.
+# Windows temporary paths may use RUNNER~1 while Explorer exposes runneradmin.
+# Compare long paths, then independently require Python samefile on the returned path.
 observer=root/'observe.ps1';observer.write_text(r'''
 $ErrorActionPreference='Stop'
-Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Obs{[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);}'
+[Console]::OutputEncoding=New-Object System.Text.UTF8Encoding($false)
+Add-Type -TypeDefinition 'using System;using System.Text;using System.Runtime.InteropServices;public class Obs{[DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);[DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]static extern uint GetLongPathName(string p,StringBuilder b,uint n);public static string Long(string p){var b=new StringBuilder(32768);var n=GetLongPathName(p,b,(uint)b.Capacity);if(n==0||n>=b.Capacity)throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());return b.ToString();}}'
 $s=New-Object -ComObject Shell.Application
+$expected=[Obs]::Long($env:CC_WATCH_FOLDER)
+[Console]::Error.WriteLine('expected='+$expected)
 [Console]::WriteLine('ready');[Console]::Out.Flush()
 while(!(Test-Path -LiteralPath $env:CC_WATCH_SIGNAL)){Start-Sleep -Milliseconds 20}
-$clock=[Diagnostics.Stopwatch]::StartNew();$found=$null
+$clock=[Diagnostics.Stopwatch]::StartNew();$found=$null;$seen=@{}
 while($clock.ElapsedMilliseconds -lt 10000){
  foreach($w in @($s.Windows())){try{
-  if($w.Document.Folder.Self.Path -eq $env:CC_WATCH_FOLDER -and [Obs]::IsWindowVisible([IntPtr][long]$w.HWND)){$found=$w;break}
- }catch{}}
+  $p=[string]$w.Document.Folder.Self.Path
+  $visible=[Obs]::IsWindowVisible([IntPtr][long]$w.HWND)
+  $key=$p+'|'+$visible
+  if(!$seen.ContainsKey($key)){$seen[$key]=$true;[Console]::Error.WriteLine('observed='+$key)}
+  if($p -and ([Obs]::Long($p) -eq $expected) -and $visible){$found=$w;break}
+ }catch{[Console]::Error.WriteLine('observer_error='+$_.Exception.Message)}}
  if($null -ne $found){break};Start-Sleep -Milliseconds 40
 }
 if($null -eq $found){throw 'Exact visible Explorer folder did not appear'}
-[Console]::WriteLine((@{observed=$true;elapsed_ms=$clock.ElapsedMilliseconds;hwnd=[long]$found.HWND}|ConvertTo-Json -Compress));[Console]::Out.Flush()
+[Console]::WriteLine((@{observed=$true;elapsed_ms=$clock.ElapsedMilliseconds;hwnd=[long]$found.HWND;path=[string]$found.Document.Folder.Self.Path}|ConvertTo-Json -Compress));[Console]::Out.Flush()
 $command=[Console]::ReadLine()
 if($command -eq 'close'){try{$found.Quit()}catch{}}
 ''',encoding='utf-8')
 def folder_click(page,path,label):
  signal=root/(label+'.signal');env=os.environ.copy();env.update(CC_WATCH_FOLDER=path,CC_WATCH_SIGNAL=str(signal))
- obs=subprocess.Popen(['powershell.exe','-NoProfile','-NonInteractive','-File',str(observer)],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=(out/(label+'-observer.log')).open('w'),text=True)
+ errfile=(out/(label+'-observer.log')).open('w',encoding='utf-8')
+ obs=subprocess.Popen(['powershell.exe','-NoProfile','-NonInteractive','-File',str(observer)],env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=errfile,text=True,encoding='utf-8')
  try:
   assert read_line(obs)=='ready';signal.touch()
   with page.expect_response(lambda r:r.url==base+'/api/open-folder' and r.request.method=='POST',timeout=8000) as captured:
@@ -89,15 +99,17 @@ def folder_click(page,path,label):
   assert 'foreground' not in data and 'focus_reason' not in data,'Old focus pipeline returned'
   timing=response.request.timing;api_ms=timing['responseEnd']
   observed=json.loads(read_line(obs,12));assert observed['observed'],observed
+  assert Path(observed['path']).samefile(path),'Explorer displayed a different directory'
   expect(page.locator('#folderFeedback')).to_be_hidden();expect(page.locator('#folderBtn')).to_be_enabled()
-  assert api_ms<1500,('Slow direct folder API',api_ms)
+  assert 0<=api_ms<1500,('Slow direct folder API',api_ms)
   assert observed['elapsed_ms']<5000,('Slow actual Explorer appearance',observed)
-  result={'api_ms':round(api_ms,2),'visible_window_ms':observed['elapsed_ms'],'visible_exact_folder':True,'chrome_button_clicked':True}
+  result={'api_ms':round(api_ms,2),'visible_window_ms':observed['elapsed_ms'],'visible_exact_folder':True,'same_directory_identity':True,'chrome_button_clicked':True,'requested_path':path,'observed_path':observed['path']}
   page.screenshot(path=str(out/(label+'-page.png')))
   return result
  finally:
   try:obs.communicate('close\n',timeout=5)
   except subprocess.TimeoutExpired:obs.kill();obs.communicate()
+  errfile.close()
 log=(out/'userflow.log').open('w',encoding='utf-8');results=[]
 cases=[('fresh-ascii',None,'fresh'),('fresh-unicode',None,'fresh')]
 if public:cases=[('198-update-button','1.9.8','button'),('198-new-exe','1.9.8','manual'),('196-update-button','1.9.6','button')]
