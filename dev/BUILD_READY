@@ -1,0 +1,5 @@
+Candidate: DEV196 1.9.6-test.1
+Baseline: v1.9.5 / 1113a822aadb89c5882e461dbdd3b83b1139b0f1
+Scope: isolated local quality-workspace and lifecycle improvements only.
+No main merge, no production publication, no startup registration.
+Gate: Windows native identity/isolation/metadata checks and media regression.

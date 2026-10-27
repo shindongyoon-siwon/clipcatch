@@ -1,0 +1,31 @@
+package main
+
+import("bytes";"context";"encoding/json";"image";"image/color";"image/png";"mime/multipart";"net/http";"net/http/httptest";"os";"path/filepath";"strings";"testing";"time")
+func fixtureImageBytes(t *testing.T)[]byte{t.Helper();im:=image.NewNRGBA(image.Rect(0,0,12,10));for y:=0;y<10;y++{for x:=0;x<12;x++{im.Set(x,y,color.NRGBA{uint8(x*20),uint8(y*20),33,255})}};var b bytes.Buffer;if e:=png.Encode(&b,im);e!=nil{t.Fatal(e)};return b.Bytes()}
+func uploadFixture(t *testing.T,a *App,name string,data []byte,origin string)*httptest.ResponseRecorder{t.Helper();var b bytes.Buffer;m:=multipart.NewWriter(&b);p,e:=m.CreateFormFile("file",name);if e!=nil{t.Fatal(e)};p.Write(data);m.Close();r:=httptest.NewRequest("POST","http://127.0.0.1:8765/api/quality/upload",&b);r.Header.Set("Origin",origin);r.Header.Set("Content-Type",m.FormDataContentType());w:=httptest.NewRecorder();a.serveHTTP(w,r);return w}
+func qualityRequest(t *testing.T,a *App,q qualitySource,o qualityOptions,preview bool,approved string)string{t.Helper();b,_:=json.Marshal(map[string]any{"source":q.ID,"options":o,"preview":preview,"approved_preview":approved});w:=browserRequest(a,"/api/quality/start","http://127.0.0.1:8765","",string(b));if w.Code!=202{t.Fatal(w.Code,w.Body.String())};var out map[string]string;json.Unmarshal(w.Body.Bytes(),&out);return out["id"]}
+func TestBrowserImageUploadIsolationAndValidation(t *testing.T){
+ a:=newApp(t.TempDir(),t.TempDir());a.state.Phase="ready";a.ffmpeg=testQualityFF(t);data:=fixtureImageBytes(t)
+ for _,c:=range []struct{name string;data []byte;origin string;code int}{{"outside.png",data,"https://untrusted.example",403},{"program.exe",data,"http://127.0.0.1:8765",415},{"broken.png",[]byte("invalid"),"http://127.0.0.1:8765",400}}{w:=uploadFixture(t,a,c.name,c.data,c.origin);if w.Code!=c.code{t.Fatal(c.name,w.Code,w.Body.String())}}
+ w:=uploadFixture(t,a,"../name.png",data,"http://127.0.0.1:8765");if w.Code!=201{t.Fatal(w.Body.String())};var q qualitySource;json.Unmarshal(w.Body.Bytes(),&q);owned:=a.qualitySources[q.ID]
+ if q.Name!="name.png"||q.Width!=12||q.Height!=10||!owned.Owned||filepath.Dir(filepath.Dir(owned.Path))!=filepath.Join(a.dataDir,"quality-input"){t.Fatalf("invalid source %+v",owned)}
+ if strings.Contains(w.Body.String(),a.dataDir){t.Fatal("private upload path exposed")};b,_:=json.Marshal(map[string]string{"id":q.ID});w=browserRequest(a,"/api/quality/release","http://127.0.0.1:8765","",string(b));if w.Code!=200{t.Fatal(w.Body.String())};if _,e:=os.Stat(owned.Path);!os.IsNotExist(e){t.Fatal("owned input not removed")}
+}
+func TestBatchQueueAndImageSaveReusesExactPreview(t *testing.T){
+ a:=newApp(t.TempDir(),t.TempDir());a.state.Phase="ready";a.ffmpeg=testQualityFF(t);o:=qualityOptions{Mode:"resize",Scale:2,Strength:.65};var qs []qualitySource;var ids []string
+ for i:=0;i<3;i++{w:=uploadFixture(t,a,"image.png",fixtureImageBytes(t),"http://127.0.0.1:8765");if w.Code!=201{t.Fatal(w.Body.String())};var q qualitySource;json.Unmarshal(w.Body.Bytes(),&q);qs=append(qs,q);ids=append(ids,qualityRequest(t,a,q,o,true,""))}
+ if qualityRequest(t,a,qs[0],o,true,"")!=ids[0]{t.Fatal("duplicate preview queued")};os.Remove(a.qualitySources[qs[1].ID].Path);for _,id:=range ids{a.runDownload(id)}
+ if a.getJob(ids[0]).Status!="done"||a.getJob(ids[1]).Status!="error"||a.getJob(ids[2]).Status!="done"{t.Fatal("batch failure leaked")}
+ for _,i:=range []int{0,2}{p:=a.getJob(ids[i]);before,e:=os.ReadFile(p.File);if e!=nil{t.Fatal(e)};saved:=qualityRequest(t,a,qs[i],o,false,p.ID);if a.getJob(saved).Quality.ReusePreview!=p.ID{t.Fatal("cache reuse missing")};a.runDownload(saved);j:=a.getJob(saved);if j.Status!="done"{t.Fatal(j.Detail)};after,_:=os.ReadFile(j.File);if !bytes.Equal(before,after){t.Fatal("save re-rendered preview")};if qualityRequest(t,a,qs[i],o,false,p.ID)!=saved{t.Fatal("double click saved duplicate")}}
+}
+func TestReleasePreservesUserOriginal(t *testing.T){a:=newApp(t.TempDir(),t.TempDir());p:=filepath.Join(t.TempDir(),"original.png");os.WriteFile(p,fixtureImageBytes(t),0600);a.qualitySources["abc"]=qualitySource{ID:"abc",Path:p};w:=browserRequest(a,"/api/quality/release","http://127.0.0.1:8765","",`{"id":"abc"}`);if w.Code!=200||!nonempty(p){t.Fatal("original was deleted")}}
+func TestLifecycleStopAndWorkspaceReuse(t *testing.T){
+ a:=newApp(t.TempDir(),t.TempDir());a.state.Jobs=[]*Job{{ID:"active",Task:"quality",Status:"queued"}};w:=browserRequest(a,"/api/stop","http://127.0.0.1:8765","",`{}`);if w.Code!=409{t.Fatal("unconfirmed stop accepted")}
+ id:=strings.Repeat("a",32);w=browserRequest(a,"/api/workspace/heartbeat","http://127.0.0.1:8765","",`{"id":"`+id+`"}`);if w.Code!=200{t.Fatal(w.Body.String())}
+ w=browserRequest(a,"/api/workspace/open","http://127.0.0.1:8765","",`{}`);if !strings.Contains(w.Body.String(),`"reused":true`){t.Fatal(w.Body.String())}
+ browserRequest(a,"/api/workspace/closed","http://127.0.0.1:8765","",`{"id":"`+id+`"}`);w=browserRequest(a,"/api/workspace/open","http://127.0.0.1:8765","",`{}`);if !strings.Contains(w.Body.String(),`"reused":false`){t.Fatal(w.Body.String())}
+ w=browserRequest(a,"/api/workspace/open","http://127.0.0.1:8765","",`{}`);if !strings.Contains(w.Body.String(),`"reused":true`){t.Fatal("rapid launches duplicated")}
+ w=browserRequest(a,"/api/stop","http://127.0.0.1:8765","",`{"force":true}`);if w.Code!=200{t.Fatal(w.Code)};select{case <-a.workerStop:case <-time.After(time.Second):t.Fatal("stop timed out")};a.stopWork();if a.getJob("active").Status!="cancelled"{t.Fatal("active job survived stop")}
+}
+func TestReadinessRejectsOtherIdentity(t *testing.T){s:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){writeJSON(w,200,map[string]string{"app":"other","version":appVersion,"channel":appChannel})}));defer s.Close();if waitForWorkspace(s.URL,100*time.Millisecond){t.Fatal("wrong server accepted")}}
+func TestCacheSaveRejectsForgedPath(t *testing.T){a:=newApp(t.TempDir(),t.TempDir());q:=qualitySource{ID:"x",Kind:"image"};task:=qualityTask{Source:q,ReusePreview:"p",Created:time.Now().Unix()};p:=task;p.Preview=true;a.state.Jobs=[]*Job{{ID:"p",Task:"quality",Status:"done",Quality:&p,File:filepath.Join(t.TempDir(),"secret.png")}};failed:=false;a.saveQualityImagePreview(context.Background(),"save",task,func(e error){failed=true});if !failed{t.Fatal("foreign preview accepted")}}

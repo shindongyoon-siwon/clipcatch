@@ -14,26 +14,75 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  media-regression:
+    if: github.ref == 'refs/heads/dev/clipcatch-1.9.6-isolated'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Apply reviewable changes and install fixture tools
+        run: |
+          set -euo pipefail
+          python tools/apply_dev196.py
+          gofmt -w src/*.go
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y ffmpeg mesa-vulkan-drivers libvulkan1
+      - name: Checksum-verified AI fixture runtime
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/quality-engine"
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip -o "$RUNNER_TEMP/quality-engine/engine.zip"
+          echo "e5aa6eb131234b87c0c51f82b89390f5e3e642b7b70f2b9bbe95b6a285a40c96  $RUNNER_TEMP/quality-engine/engine.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/quality-engine/engine.zip" -d "$RUNNER_TEMP/quality-engine/bin"
+          ENGINE="$(find "$RUNNER_TEMP/quality-engine/bin" -name realesrgan-ncnn-vulkan -type f | head -n 1)"
+          chmod +x "$ENGINE"
+          echo "CLIPCATCH_AI_ENGINE_TEST=$ENGINE" >> "$GITHUB_ENV"
+      - name: Actual media fixtures, batch isolation and data-race checks
+        working-directory: src
+        env:
+          CLIPCATCH_QUALITY_TEST: '1'
+          CLIPCATCH_EDIT_MEDIA_TEST: '1'
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -v ./... | tee ../media-regression.log
+          go vet ./...
+          go test -tags isolated_dev -run '^TestDevelopment' -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClipCatch-Dev196-media-regression
+          path: media-regression.log
+          retention-days: 14
+
   windows-test:
     if: github.ref == 'refs/heads/dev/clipcatch-1.9.6-isolated'
     runs-on: windows-latest
     timeout-minutes: 20
+    env:
+      PYTHONUTF8: '1'
     steps:
-      - name: Checkout development copy without write credentials
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
       - name: Apply reviewable development patches
         shell: pwsh
         run: |
           python tools/apply_dev196.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem src/*.go | ForEach-Object { gofmt -w $_.FullName }
           New-Item -ItemType Directory -Force dev-artifacts | Out-Null
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: src/go.mod
-      - name: Prepare original lime icon and Windows metadata
+      - name: Prepare approved lime icon and Windows metadata
         shell: pwsh
         run: |
           python -m pip install Pillow==11.3.0 playwright==1.55.0
@@ -68,7 +117,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python tests/batch_workspace_offline.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build isolated DEV196 and run native Windows checks
+      - name: Build DEV196 and run native Windows checks
         shell: pwsh
         run: |
           $env:CGO_ENABLED='0'
@@ -88,7 +137,7 @@ jobs:
           "$hash  ClipCatch-Dev196.exe" | Out-File dev-artifacts/SHA256SUMS -Encoding ascii
           python tools/export_dev_source.py dev-artifacts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Upload candidate and evidence only; never publish a release
+      - name: Upload test candidate only, never a production release
         uses: actions/upload-artifact@v4
         with:
           name: ClipCatch-Dev196-tested-Windows
