@@ -28,7 +28,7 @@ jobs:
           path: dist
           run-id: 40479474058
           github-token: ${{ github.token }}
-      - name: Correct test selector to the actual user-visible update prompt
+      - name: Use the actual visible prompt and observe automatic version reload
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force public-evidence | Out-Null
@@ -39,6 +39,10 @@ jobs:
           old="page.locator('#installAppUpdate')"
           new="page.get_by_role('button', name='\uc5c5\ub370\uc774\ud2b8 \ud6c4 \ub2e4\uc2dc \uc2dc\uc791', exact=True)"
           assert s.count(old)==2, 'Unexpected test source; do not silently alter assertions'
+          s=s.replace(old,new)
+          old="    page.goto(base,wait_until='domcontentloaded')\n    sample=folder_click(page,state['save_dir'],label)"
+          new="    expect(page.locator('.brand-word small')).to_have_text('v'+version,timeout=30000)\n    sample=folder_click(page,state['save_dir'],label)"
+          assert s.count(old)==1, 'Expected one post-update test navigation'
           s=s.replace(old,new)
           p.write_text(s,encoding='utf-8')
           Path('public-evidence/executed-userflow.py').write_text(s,encoding='utf-8')
