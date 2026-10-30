@@ -45,8 +45,14 @@ func shouldAttemptRedditPageFallback(rawURL, host, msg string) bool {
 	if strings.Contains(s, "429") || strings.Contains(s, "too many requests") {
 		return false
 	}
-	return needsAuth(msg) || isRedditAPIRestricted(msg) ||
-		strings.Contains(s, "403") || strings.Contains(s, "failed to parse json")
+	// CC-199 is the original user-reported symptom; when no media was saved,
+	// a public-page fallback can still help even if yt-dlp's stderr is unknown.
+	code, _, _ := classifyDownloadError(msg, host)
+	switch code {
+	case "CC-103", "CC-104", "CC-106", "CC-199":
+		return true
+	}
+	return false
 }
 
 func unescapeRedditPageMedia(raw string) string {
