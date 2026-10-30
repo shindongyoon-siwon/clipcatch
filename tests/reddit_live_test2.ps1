@@ -17,6 +17,8 @@ $report = [ordered]@{
     job_status = ''
     error_code = ''
     error_title = ''
+    failure_stage = ''
+    failure_http_code = 0
     valid_media_files = 0
     valid_media_bytes = 0
     ffprobe_verified = $false
@@ -56,7 +58,7 @@ try {
     $report.test_result = 'test2_engine_ready'
     $step = 'submit'
     $body = @{ urls = $source; output_mode = 'original' } | ConvertTo-Json -Compress
-    $queued = Invoke-RestMethod -Uri "$base/api/download" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 12
+    $queued = Invoke-RestMethod -Uri "$base/api/download" -Method Post -ContentType 'application/json' -Headers @{ Origin = $base } -Body $body -TimeoutSec 12
     if (-not $queued.ok -or @($queued.job_ids).Count -ne 1) { throw 'TEST2 did not queue requested media' }
     $id = [string] $queued.job_ids[0]
     $step = 'download'
@@ -106,7 +108,11 @@ try {
     if ($report.test_result -notin @('download_timeout', 'live_reddit_download_failed')) {
         $report.test_result = 'test_harness_failed_at_' + $step
     }
-    Write-Warning ('TEST2 live verification was not successful at ' + $step + '; this is not a production result.')
+    $report.failure_stage = $step
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+        $report.failure_http_code = [int]$_.Exception.Response.StatusCode
+    }
+    Write-Warning ('TEST2 live verification was not successful at ' + $step + ' (HTTP ' + $report.failure_http_code + '); this is not a production result.')
 } finally {
     if ($null -ne $proc) {
         try { if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } } catch {}
