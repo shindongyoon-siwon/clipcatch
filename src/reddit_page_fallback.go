@@ -14,11 +14,11 @@ import (
 
 var (
 	redditFallbackPostIDRE = regexp.MustCompile(`(?i)(?:^|/)comments/([a-z0-9]{5,10})(?:/|$)`)
-	redditFallbackMetaRE   = regexp.MustCompile(`(?is)<meta\b[^>]{1,4096}>`)
-	redditFallbackAttrRE   = regexp.MustCompile(`(?is)\b(property|name|content)\s*=\s*["']([^"']{1,4096})["']`)
+	redditFallbackMetaRE   = regexp.MustCompile(`(?is)<meta\b[^>]+>`)
+	redditFallbackAttrRE   = regexp.MustCompile(`(?is)\b(property|name|content)\s*=\s*["']([^"']+)["']`)
 	redditFallbackMediaRE  = regexp.MustCompile(`(?i)(?:https?:)?//v\.redd\.it/([a-z0-9]{6,20})(?:[/?#&"'\\\s<]|$)`)
-	redditFallbackPlayerRE = regexp.MustCompile(`(?is)<shreddit-player\b[^>]{1,16000}>`)
-	redditFallbackRootRE   = regexp.MustCompile(`(?is)<(?:shreddit-post|div)\b[^>]{1,8192}>`)
+	redditFallbackPlayerRE = regexp.MustCompile(`(?is)<shreddit-player\b[^>]+>`)
+	redditFallbackRootRE   = regexp.MustCompile(`(?is)<(?:shreddit-post|div)\b[^>]+>`)
 )
 
 func redditFallbackPostID(raw string) string {
@@ -126,12 +126,12 @@ func extractRedditPublicVideoID(document []byte, postID string) (string, error) 
 }
 
 func singleRedditFallbackID(ids []string) string {
-	seen := make(map[string]bool)
+	seen := make(map[string]string)
 	for _, id := range ids {
 		if len(id) < 6 || len(id) > 20 {
 			return ""
 		}
-		seen[strings.ToLower(id)] = true
+		seen[strings.ToLower(id)] = id
 		if len(seen) > 1 {
 			return ""
 		}
