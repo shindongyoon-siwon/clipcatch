@@ -810,7 +810,7 @@ func (a *App) runDownload(id string) {
 	// If Reddit's JSON metadata is denied but the ordinary public post page
 	// exposes its own video ID, use the first-party CDN manifest instead.
 	// No new cookies, Chrome profile access, login bypass or cross-site fetches.
-	if err != nil && shouldAttemptRedditPageFallback(j.URL, j.Host, msg) {
+	if err != nil && shouldAttemptRedditPageFallback(j.URL, j.Host, msg) && redditFallbackJobHasNoMedia(a.getJob(id)) {
 		a.mutateJob(id, func(item *Job) {
 			item.Detail = "레딧 공개 페이지에서 영상 정보를 다시 확인 중..."
 			item.Percent = 0
