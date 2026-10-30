@@ -807,6 +807,40 @@ func (a *App) runDownload(id string) {
 	if ctx.Err() != nil || a.isJobCancelled(id) {
 		return
 	}
+	// If Reddit's JSON metadata is denied but the ordinary public post page
+	// exposes its own video ID, use the first-party CDN manifest instead.
+	// No new cookies, Chrome profile access, login bypass or cross-site fetches.
+	if err != nil && shouldAttemptRedditPageFallback(j.URL, j.Host, msg) {
+		a.mutateJob(id, func(item *Job) {
+			item.Detail = "레딧 공개 페이지에서 영상 정보를 다시 확인 중..."
+			item.Percent = 0
+		})
+		if mediaURL, resolveErr := resolveRedditPublicVideo(ctx, j.URL, nil); resolveErr == nil {
+			direct := cloneDownloadJob(j)
+			direct.URL = mediaURL
+			direct.Host = "v.redd.it"
+			err, msg = a.runDownloadAttempt(id, &direct, false)
+			if err == nil && ctx.Err() == nil && !a.isJobCancelled(id) {
+				downloaded := a.getJob(id)
+				if downloaded == nil || !nonempty(downloaded.File) {
+					err = errors.New("Reddit fallback output missing")
+					msg = "Reddit fallback output missing"
+				} else {
+					video, audio, checkErr := a.inspectBrowserOutput(ctx, downloaded.File)
+					if checkErr != nil || !video {
+						err = errors.New("Reddit fallback verification failed")
+						msg = "ffprobe: Reddit fallback video validation failed"
+					} else if !audio {
+						err = errors.New("Reddit fallback has no verified audio")
+						msg = "CC-313-REDDIT-FALLBACK-SILENT"
+					}
+				}
+			}
+		}
+	}
+	if ctx.Err() != nil || a.isJobCancelled(id) {
+		return
+	}
 	if err != nil {
 		if msg == "" {
 			msg = err.Error()
@@ -819,6 +853,12 @@ func (a *App) runDownload(id string) {
 			// Generic 403/JSON failures are not evidence that the user must log in.
 			j.AuthRequired = needsAuth(msg) || initialExplicitLogin
 			j.ErrorCode, j.ErrorTitle, j.ErrorAdvice = classifyDownloadError(msg, j.Host)
+			if msg == "CC-313-REDDIT-FALLBACK-SILENT" {
+				j.ErrorCode = "CC-313"
+				j.ErrorTitle = "저장된 레딧 영상에 소리가 없어"
+				j.ErrorAdvice = "영상 원본이 무음인지 확인해 줘. 기존에 받은 파일은 보존했어. 무음이 맞으면 브라우저 확장에서 무음 저장을 허용할 수 있어."
+				j.AuthRequired = false
+			}
 			// Never persist raw stderr: sites may echo URLs or secret query tokens.
 			j.Detail = j.ErrorTitle
 			if j.ErrorCode == "CC-101" {
