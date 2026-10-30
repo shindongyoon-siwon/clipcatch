@@ -55,6 +55,10 @@ func shouldAttemptRedditPageFallback(rawURL, host, msg string) bool {
 	return false
 }
 
+func redditFallbackJobHasNoMedia(job *Job) bool {
+	return job != nil && job.File == "" && len(job.Media) == 0
+}
+
 func unescapeRedditPageMedia(raw string) string {
 	s := html.UnescapeString(raw)
 	s = strings.ReplaceAll(s, `\/`, "/")
