@@ -73,6 +73,12 @@ func TestRedditPublicPageResolverUsesOnlyKnownHosts(t *testing.T) {
 	}
 }
 
+func TestRedditFallbackPreservesPartialDownloads(t *testing.T) {
+	if redditFallbackJobHasNoMedia(&Job{File: "already-saved.mp4"}) || redditFallbackJobHasNoMedia(&Job{Media: []savedPostMedia{{File: "one.mp4"}}}) || !redditFallbackJobHasNoMedia(&Job{}) {
+		t.Fatal("fallback should not replace existing media")
+	}
+}
+
 func TestRedditPublicPageRateLimitIsNotRetried(t *testing.T) {
 	tries := 0
 	client := &http.Client{Transport: redditFallbackRoundTripper(func(req *http.Request) (*http.Response, error) {
@@ -83,7 +89,7 @@ func TestRedditPublicPageRateLimitIsNotRetried(t *testing.T) {
 	if err == nil || tries != 1 {
 		t.Fatalf("429 must stop retry: %v, tries=%d", err, tries)
 	}
-	for _, msg := range []string{"ERROR: Account authentication is required", "ERROR: [Reddit] Failed to parse JSON", "ERROR: HTTP 403 Forbidden"} {
+	for _, msg := range []string{"ERROR: Account authentication is required", "ERROR: [Reddit] Failed to parse JSON", "ERROR: HTTP 403 Forbidden", "ERROR: [Reddit] extraction aborted unexpectedly"} {
 		if !shouldAttemptRedditPageFallback("https://www.reddit.com/comments/1x0k17b/", "www.reddit.com", msg) {
 			t.Fatalf("fallback skipped after public API failure: %s", msg)
 		}
