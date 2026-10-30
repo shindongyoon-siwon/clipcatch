@@ -669,12 +669,20 @@ func isRedditConnectionDrop(msg string) bool {
 	return false
 }
 
+// Reddit can serve a public post while separately denying its JSON metadata API.
+// These are access restrictions, not proof that a Reddit account is required.
+func isRedditAPIRestricted(msg string) bool {
+	s := strings.ToLower(msg)
+	return strings.Contains(s, "unable to access the reddit api") ||
+		strings.Contains(s, "blocked by network security")
+}
+
 func isRedditAccessBlock(msg string) bool {
 	s := strings.ToLower(msg)
 	if strings.Contains(s, "429") || strings.Contains(s, "too many requests") {
 		return false
 	}
-	return needsAuth(msg) || strings.Contains(s, "http error 403") ||
+	return isRedditAPIRestricted(msg) || needsAuth(msg) || strings.Contains(s, "http error 403") ||
 		strings.Contains(s, "403 forbidden") || strings.Contains(s, "403: blocked") ||
 		strings.Contains(s, "failed to parse json")
 }
@@ -889,6 +897,7 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 	a.setJobProcess(id, cmd)
 	defer a.clearJobProcess(id, cmd)
 	var errLines []string
+	var firstErrorLine string
 	var linesMu sync.Mutex
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -910,6 +919,9 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 				continue
 			}
 			linesMu.Lock()
+			if firstErrorLine == "" && strings.HasPrefix(strings.ToLower(s), "error:") {
+				firstErrorLine = s
+			}
 			errLines = append(errLines, s)
 			if len(errLines) > 14 {
 				errLines = errLines[1:]
@@ -925,6 +937,12 @@ func (a *App) runDownloadAttemptNetwork(id string, j *Job, impersonate, forceIPv
 	if err != nil {
 		linesMu.Lock()
 		msg := strings.Join(errLines, "\n")
+		// yt-dlp may emit more than 14 traceback/warning lines after the actual
+		// error. Keep that first error in memory for classification only; raw
+		// command output is never copied to history or diagnostic reports.
+		if firstErrorLine != "" && !strings.Contains(msg, firstErrorLine) {
+			msg = firstErrorLine + "\n" + msg
+		}
 		linesMu.Unlock()
 		return err, msg
 	}
