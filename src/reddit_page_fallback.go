@@ -194,7 +194,7 @@ func resolveRedditPublicVideo(ctx context.Context, rawPost string, client *http.
 			return "", errors.New("Reddit rate limit")
 		}
 		if response.StatusCode != http.StatusOK || !strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/html") ||
-			redditFallbackPostID(response.Request.URL.String()) != postID {
+			!redditFallbackResponseMatches(response, req, postID) {
 			response.Body.Close()
 			continue
 		}
@@ -209,4 +209,15 @@ func resolveRedditPublicVideo(ctx context.Context, rawPost string, client *http.
 		}
 	}
 	return "", errors.New("public post media unavailable")
+}
+
+func redditFallbackResponseMatches(response *http.Response, request *http.Request, postID string) bool {
+	if response == nil || request == nil {
+		return false
+	}
+	u := request.URL
+	if response.Request != nil && response.Request.URL != nil {
+		u = response.Request.URL
+	}
+	return u != nil && redditFallbackPostID(u.String()) == postID
 }
