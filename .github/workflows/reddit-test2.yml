@@ -1,0 +1,92 @@
+name: ClipCatch TEST2 Reddit Windows proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/reddit_live_test2.ps1'
+      - 'tools/windows_resources.py'
+      - '.github/workflows/reddit-test2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clipcatch-test2-reddit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-windows-test:
+    if: github.head_ref == 'test/reddit-cc199-2.0.1-test1'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Prepare pinned quality bundle, same as stable candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/quality_bundle
+          curl --fail --location --retry 2 --max-time 120 --proto '=https' --proto-redir '=https' https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip -o src/quality_bundle/windows.zip
+          echo 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d  src/quality_bundle/windows.zip' | sha256sum -c -
+      - name: Run Windows regression tests from the 2.0.0 baseline
+        shell: pwsh
+        working-directory: src
+        run: |
+          go test -tags bundled_ai -count=1 -timeout=8m ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Go tests failed' }
+          go vet -tags bundled_ai ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Go vet failed' }
+      - name: Build isolated TEST2 executable, not a stable installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-test2, test-evidence | Out-Null
+          python -m pip install Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Pillow install failed' }
+          python tools/windows_resources.py --version 2.0.1-test.1 --test2
+          if ($LASTEXITCODE -ne 0) { throw 'TEST2 resources failed' }
+          $env:CGO_ENABLED='0'
+          Push-Location src
+          try {
+            go build -tags bundled_ai -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=2.0.1-test.1 -X main.appChannel=test' -o ../dist-test2/ClipCatch-Test2.exe .
+            if ($LASTEXITCODE -ne 0) { throw 'TEST2 compilation failed' }
+          } finally { Pop-Location }
+          $exe = (Resolve-Path dist-test2/ClipCatch-Test2.exe).Path
+          $info = Join-Path (Resolve-Path test-evidence) 'build-info.json'
+          $p = Start-Process -FilePath $exe -ArgumentList @('--build-info', $info) -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $info)) { throw 'TEST2 identity command failed' }
+          $identity = Get-Content $info -Raw | ConvertFrom-Json
+          if ($identity.app -ne 'clipcatch-test2' -or $identity.channel -ne 'test' -or $identity.version -ne '2.0.1-test.1') {
+            throw 'TEST2 identity mismatch; do not test or publish'
+          }
+          $metadata = (Get-Item $exe).VersionInfo
+          if ($metadata.FileDescription -ne 'ClipCatch TEST2' -or $metadata.OriginalFilename -ne 'ClipCatch-Test2.exe') {
+            throw 'Windows TEST2 file identity mismatch'
+          }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ClipCatch-Test2.exe" | Set-Content dist-test2/SHA256SUMS -Encoding ascii
+      - name: Real Reddit download through the TEST2 Windows executable
+        shell: pwsh
+        run: |
+          ./tests/reddit_live_test2.ps1 -Executable dist-test2/ClipCatch-Test2.exe
+      - name: Upload TEST2 candidate and test results, never a production release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipCatch-TEST2-reddit-2.0.1-test.1
+          path: |
+            dist-test2/
+            test-evidence/
+          if-no-files-found: warn
+          retention-days: 7
