@@ -59,12 +59,12 @@ jobs:
           New-Item -ItemType Directory -Force dist-test2, test-evidence | Out-Null
           python -m pip install Pillow==11.3.0
           if ($LASTEXITCODE -ne 0) { throw 'Pillow install failed' }
-          python tools/windows_resources.py --version 2.0.1-test.1 --test2
+          python tools/windows_resources.py --version 2.0.1-test.2 --test2
           if ($LASTEXITCODE -ne 0) { throw 'TEST2 resources failed' }
           $env:CGO_ENABLED='0'
           Push-Location src
           try {
-            go build -tags bundled_ai -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=2.0.1-test.1 -X main.appChannel=test' -o ../dist-test2/ClipCatch-Test2.exe .
+            go build -tags bundled_ai -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=2.0.1-test.2 -X main.appChannel=test' -o ../dist-test2/ClipCatch-Test2.exe .
             if ($LASTEXITCODE -ne 0) { throw 'TEST2 compilation failed' }
           } finally { Pop-Location }
           $exe = (Resolve-Path dist-test2/ClipCatch-Test2.exe).Path
@@ -72,7 +72,7 @@ jobs:
           $p = Start-Process -FilePath $exe -ArgumentList @('--build-info', $info) -Wait -PassThru
           if ($p.ExitCode -ne 0 -or -not (Test-Path $info)) { throw 'TEST2 identity command failed' }
           $identity = Get-Content $info -Raw | ConvertFrom-Json
-          if ($identity.app -ne 'clipcatch-test2' -or $identity.channel -ne 'test' -or $identity.version -ne '2.0.1-test.1') {
+          if ($identity.app -ne 'clipcatch-test2' -or $identity.channel -ne 'test' -or $identity.version -ne '2.0.1-test.2') {
             throw 'TEST2 identity mismatch; do not test or publish'
           }
           $metadata = (Get-Item $exe).VersionInfo
@@ -89,7 +89,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ClipCatch-TEST2-reddit-2.0.1-test.1
+          name: ClipCatch-TEST2-reddit-2.0.1-test.2
           path: |
             dist-test2/
             test-evidence/
