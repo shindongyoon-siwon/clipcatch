@@ -2,7 +2,7 @@
 # Never uses a production ClipCatch process, settings, pairing key or download directory.
 param([Parameter(Mandatory = $true)][string] $Executable)
 $ErrorActionPreference = 'Stop'
-$version = '2.0.1-test.1'
+$version = '2.0.1-test.2'
 $source = 'https://www.reddit.com/r/catsistanbul/comments/1x0k17b/the_new_employee_has_an_idea/'
 $base = 'http://127.0.0.1:18766'
 $evidence = Join-Path $PWD 'test-evidence'
