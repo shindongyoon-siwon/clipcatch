@@ -28,6 +28,8 @@ func classifyDownloadError(raw, host string) (string, string, string) {
 	switch {
 	case strings.Contains(s, "429") || strings.Contains(s, "too many requests"):
 		return "CC-102", "사이트에서 잠시 다운로드를 제한했어", "몇 분 뒤 다시 시도해 줘. 짧은 시간에 반복해서 요청하지 마."
+	case isRedditHost(host) && isRedditAPIRestricted(raw):
+		return "CC-104", "레딧 영상 정보 요청이 차단됐어", "공개 게시물이 브라우저에서 재생된다면 ClipCatch Browser 확장 기능에서 현재 게시물 영상을 찾아 전송해 줘. 해당 영상의 다운로드 성공은 별도로 확인해야 해."
 	case needsAuth(raw):
 		if isRedditHost(host) {
 			return "CC-103", "레딧 로그인 확인이 필요해", "레딧 전용 인증을 연결한 뒤 해당 영상만 다시 시도해 줘."
