@@ -32,14 +32,14 @@ jobs:
           from pathlib import Path
           encoded=Path('.candidate/section-ui-v2.patch.b64').read_text().strip()
           patch=lzma.decompress(base64.b64decode(encoded,validate=True))
-          assert hashlib.sha256(patch).hexdigest()=='b4b56b5c080f6c94d1c0222d2f41b81cf9bd20f4ae5f602ec1c313b3ce66b400'
+          assert hashlib.sha256(patch).hexdigest()=='426461cc2cac8206b229604940c77f2325b195426a9be60e615b9b398c1e88a7'
           subprocess.run(['git','apply','--check','--index','-'],input=patch,check=True)
           subprocess.run(['git','apply','--index','-'],input=patch,check=True)
           subprocess.run(['git','rm','.candidate/section-ui-v2.patch.b64'],check=True)
           PY_PATCH
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'fix(test): split numeric time inputs and explain candidate format limits'
+            git commit -m 'fix(test): retain selected quality while rechecking section support'
             git push origin HEAD:refs/heads/test/section-quality-preflight
           fi
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
