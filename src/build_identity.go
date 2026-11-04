@@ -20,9 +20,16 @@ type buildIdentity struct {
 }
 
 func currentBuildIdentity() buildIdentity {
+	if isSectionBuild() {
+		return buildIdentity{runtimeAppID(), appChannel, appVersion, ""}
+	}
 	return buildIdentity{runtimeAppID(), appChannel, appVersion, stableShareURL}
 }
 func validateBuildIdentity(b buildIdentity) error {
+	if b.Channel == "section-test" && b.App == "clipcatch-section-test" {
+		_, e := parseTrialVersion(b.Version)
+		return e
+	}
 	if b.Channel == "stable" && b.App == "clipcatch" {
 		_, e := parseSemver(b.Version)
 		return e
@@ -71,6 +78,9 @@ func verifyInstallerIdentity(path, version string) error {
 	return nil
 }
 func buildLabel() string {
+	if isSectionBuild() {
+		return "SECTION TEST"
+	}
 	if isTrialBuild() {
 		return "TEST2 \ud14c\uc2a4\ud2b8\ud310"
 	}

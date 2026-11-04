@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -13,6 +14,12 @@ func selectedRedditKey(page, media string) string {
 	return canonicalJobKey(page) + "|reddit-media:" + media
 }
 func downloadJobKey(j *Job) string {
+	if j.Clip != nil {
+		return fmt.Sprintf("%s|clip:%.3f-%.3f|%s", canonicalJobKey(j.URL), j.Clip.Start, j.Clip.End, j.FormatSelector)
+	}
+	if j.FormatSelector != "" {
+		return canonicalJobKey(j.URL) + "|format:" + j.FormatSelector
+	}
 	if j.Task == "quality" || j.Task == "quality-engine" {
 		return j.Task + ":" + j.ID
 	}

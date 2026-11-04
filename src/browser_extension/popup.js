@@ -1,3 +1,4 @@
+import {attachClipPopup} from './section-popup.mjs';
 import {transferSummary,candidateJobs} from './transfer-state.mjs';
 const $=id=>document.getElementById(id);
 let candidates=[],selected=new Set(),outcomes=new Map(),paired=false,working=false,duplicates=[],polling=false;
@@ -63,8 +64,8 @@ $('scan').onclick=async()=>{
   const r=await message({kind:'scan'});$('candidates').replaceChildren();
   for(const [i,g] of r.groups.entries()){
    const b=document.createElement('button');b.textContent=`감지된 영상 ${i+1} 저장`;
-   b.onclick=async()=>{try{if(!g.matched&&!confirm('선택한 영상이 원하는 게시물의 영상이 맞습니까?'))return;await message({kind:'download',id:g.id,output_mode:$('outputMode').value,confirmed:true,silent:$('silent').checked});notice('ClipCatch로 전송했습니다.');}catch(e){notice(e.message,true);}};
-   $('candidates').append(b);
+   b.onclick=async()=>{try{if(document.getElementById('sectionOnly')?.checked||document.getElementById('sectionQuality')?.value!=='0'){window.clipPopupInspectGroup?.(g.id);return;}if(!g.matched&&!confirm('선택한 영상이 원하는 게시물의 영상이 맞습니까?'))return;await message({kind:'download',id:g.id,output_mode:$('outputMode').value,confirmed:true,silent:$('silent').checked});notice('ClipCatch로 전송했습니다.');}catch(e){notice(e.message,true);}};
+   $('candidates').append(b); const clip=document.createElement('button');clip.textContent='\ud654\uc9c8\u00b7\uad6c\uac04 \uc120\ud0dd';clip.onclick=()=>window.clipPopupInspectGroup?.(g.id);$('candidates').append(clip);
   }if(!r.groups.length)notice('게시물에서 영상을 재생한 후 다시 찾아 주세요.');
  }catch(e){notice(e.message,true);}
 };
@@ -137,3 +138,5 @@ function updateBatchStatus(){
 
 setInterval(()=>{if(document.visibilityState==='visible')refreshJobs();},1200);
 load();
+
+attachClipPopup({message,selection:()=>selected.size===1?candidates.find(c=>selected.has(c.key)):null,notice,refresh:refreshJobs});

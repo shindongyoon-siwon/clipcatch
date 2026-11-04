@@ -142,6 +142,9 @@ func (a *App) updateCheckHooksLocked() updateCheckHooks {
 // All user activity events and tabs share one claim. The first startup check owns the
 // initial checking state; subsequent automatic checks leave the UI untouched.
 func (a *App) beginAppUpdateCheck(automatic, initial bool) (*appUpdateCheck, string) {
+	if isSectionBuild() {
+		return nil, "candidate"
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.stopping || updateInProgress(a.state.AppUpdate.Status) {
@@ -371,6 +374,9 @@ func (a *App) saveRequiredUpdate(r verifiedRelease) {
 	_ = os.Rename(name, p)
 }
 func (a *App) watchAppUpdates() {
+	if isSectionBuild() {
+		return
+	}
 	a.checkAppUpdate()
 	// No stable background ticker, sleeping update goroutine or idle requests.
 	if !isTrialBuild() {

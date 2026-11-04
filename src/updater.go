@@ -219,6 +219,10 @@ func (a *App) checkAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) installAppUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	if isSectionBuild() {
+		writeError(w, 409, "SECTION TEST: automatic install disabled")
+		return
+	}
 	if runtime.GOOS != "windows" {
 		writeError(w, 400, "Windows에서만 설치할 수 있습니다.")
 		return
@@ -544,6 +548,9 @@ func logUpdate(msg string) {
 }
 
 func installedExePath() string {
+	if isSectionBuild() {
+		return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "ClipCatch-SectionTest", "ClipCatch-SectionTest.exe")
+	}
 	if isTrialBuild() {
 		return filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs", "ClipCatch-Test2", "ClipCatch-Test2.exe")
 	}
@@ -552,6 +559,9 @@ func installedExePath() string {
 
 // One-time migration to a stable per-user location: subsequent updates do not need ZIP extraction.
 func installAndRelaunch() bool {
+	if isSectionBuild() {
+		return false
+	} // Explicit portable candidate: never replace any installed TEST2/stable EXE.
 	if runtime.GOOS != "windows" || os.Getenv("LOCALAPPDATA") == "" || os.Getenv("CLIPCATCH_PORTABLE") == "1" {
 		return false
 	}

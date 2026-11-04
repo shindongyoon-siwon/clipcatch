@@ -4,7 +4,7 @@ let serial=Promise.resolve();
 const serialTask=fn=>{const next=serial.then(fn,fn);serial=next.catch(()=>{});return next;};
 async function currentTab(){const [tab]=await chrome.tabs.query({active:true,currentWindow:true});return tab;}
 async function localRequest(link,path,body,authorized=true){
- const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),16000);
  try{
   const base=new URL(link.base);
   if(base.protocol!=='http:'||!['127.0.0.1','localhost'].includes(base.hostname)||(!base.port||Number(base.port)<1024||Number(base.port)>65535)||base.username||base.password)throw Error('연결 대상이 ClipCatch가 아닙니다. ClipCatch에서 코드를 다시 복사해 주세요.');
@@ -48,6 +48,15 @@ async function handle(m){
   const mode=await readOutputMode(m.value);
   if(m.value!==undefined)await chrome.storage.local.set({outputMode:mode});
   return {mode};
+ }
+
+ if(m.kind==='clip-preview'||m.kind==='clip-queue'){
+  const {link}=await chrome.storage.local.get('link');if(!link)throw Error('Connect ClipCatch first');await checkBackend(link);
+  if(m.kind==='clip-queue'){const result=await localRequest(link,'/bridge/clip-queue',{token:m.token,quality:m.quality,partial:!!m.partial,start:String(m.start||''),end:String(m.end||''),output_mode:m.output_mode,allow_duplicates:!!m.allow_duplicates});await rememberJobs(result,'Clip section',m.partial?'premiere':m.output_mode);return result;}
+  const tab=await currentTab();let body;
+  if(m.group_id){const {capture}=await chrome.storage.session.get('capture');const post=redditPost(tab?.url);if(!capture||capture.tabId!==tab?.id||capture.postId!==post?.id||Date.now()-capture.started>TTL)throw Error('Find the playing video again');const g=groupMedia(capture.dom,capture.network,capture.matched).find(g=>g.id===m.group_id);if(!g||!g.matched)throw Error('Cannot confirm this post video');body={url:capture.page_url,media_url:g.media_url,audio_url:g.audio_url||'',allow_silent:!!m.silent};}
+  else {const {collection}=await chrome.storage.session.get('collection');if(!collection||collection.tabId!==tab?.id||collection.page_url!==tab.url||Date.now()-collection.started>TTL)throw Error('Find this video again');const c=collection.candidates.find(c=>c.key===m.key);if(!c)throw Error('Select one video');body={url:c.page_url};if(c.mode==='media'){body.media_url=c.media_url;body.audio_url=c.audio_url||'';body.allow_silent=!!m.silent;}}
+  return localRequest(link,'/bridge/clip-preview',{...body,quality:Number(m.quality)||0,token:m.token||''});
  }
  const outputMode=['send-selected','download','send-page'].includes(m.kind)?await readOutputMode(m.output_mode):null;
  if(m.kind==='pair'){

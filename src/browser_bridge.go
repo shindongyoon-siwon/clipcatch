@@ -84,7 +84,7 @@ func decodeBrowserJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	return nil
 }
 func (a *App) serveBrowserBridge(w http.ResponseWriter, r *http.Request) bool {
-	if r.URL.Path != "/bridge/pair" && r.URL.Path != "/bridge/download" && r.URL.Path != "/bridge/page" && r.URL.Path != "/bridge/status" && r.URL.Path != "/bridge/open-folder" {
+	if r.URL.Path != "/bridge/pair" && r.URL.Path != "/bridge/download" && r.URL.Path != "/bridge/page" && r.URL.Path != "/bridge/status" && r.URL.Path != "/bridge/open-folder" && r.URL.Path != "/bridge/clip-preview" && r.URL.Path != "/bridge/clip-queue" {
 		return false
 	}
 	origin := r.Header.Get("Origin")
@@ -128,7 +128,11 @@ func (a *App) serveBrowserBridge(w http.ResponseWriter, r *http.Request) bool {
 	if a.updateGateRequest(w, r) {
 		return true
 	}
-	if r.URL.Path == "/bridge/status" {
+	if r.URL.Path == "/bridge/clip-preview" {
+		a.clipPreview(w, r)
+	} else if r.URL.Path == "/bridge/clip-queue" {
+		a.clipQueue(w, r)
+	} else if r.URL.Path == "/bridge/status" {
 		a.browserJobStatus(w, r)
 	} else if r.URL.Path == "/bridge/open-folder" {
 		a.browserOpenDownloads(w, r)
@@ -148,7 +152,7 @@ func (a *App) pairBrowser(w http.ResponseWriter, r *http.Request, origin string)
 		writeError(w, 400, "Invalid pairing request")
 		return
 	}
-	if isTrialBuild() && in.Channel != "test" {
+	if isTrialBuild() && in.Channel != appChannel {
 		writeError(w, 409, "테스트판은 ClipCatch Browser TEST2와만 연결됩니다.")
 		return
 	}
@@ -232,6 +236,7 @@ func (a *App) installBrowserExtension() (string, error) {
 		if e != nil {
 			return "", e
 		}
+		b = sectionExtensionAsset(ent.Name(), b)
 		if e = os.WriteFile(filepath.Join(dir, ent.Name()), b, 0600); e != nil {
 			return "", e
 		}

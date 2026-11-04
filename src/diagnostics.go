@@ -242,6 +242,10 @@ func buildDiagnosticReport(st ClientState) string {
 	return strings.Join(lines, "\n")
 }
 func safeErrorCode(code string) string {
+	switch code {
+	case "CC-SECTION-TIMES", "CC-SECTION-EXPIRED", "CC-SECTION-RANGE", "CC-SECTION-BUDGET", "CC-SECTION-VERIFY", "CC-SECTION-UNKNOWN":
+		return code
+	}
 	if _, ok := postMediaErrorMessages[code]; ok {
 		return code
 	}

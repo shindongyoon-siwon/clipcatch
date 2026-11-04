@@ -45,6 +45,8 @@ var (
 )
 
 type Job struct {
+	Clip               *clipSpec        `json:"clip,omitempty"`
+	FormatSelector     string           `json:"format_selector,omitempty"`
 	DownloadDir        string           `json:"download_dir,omitempty"`
 	BrowserOwner       string           `json:"browser_owner,omitempty"`
 	Quality            *qualityTask     `json:"quality,omitempty"`
@@ -102,6 +104,7 @@ type ClientState struct {
 }
 
 type App struct {
+	clips               *clipService
 	qualityBatchResults map[string]*qualityBatchResult
 	qualityBatchHooks   qualityBatchHooks
 	workspaceWasOpened  bool
@@ -167,6 +170,7 @@ func newApp(dataDir, saveDir string) *App {
 		Jobs:            make([]*Job, 0),
 		AppUpdate:       UpdateInfo{Status: "checking", Detail: "업데이트 확인 중"},
 	}
+	a.clips = newClipService()
 	a.workspaceClients = make(map[string]workspaceClient)
 	a.loadRequiredUpdate()
 	a.loadActivityUpdateCache()
@@ -186,6 +190,11 @@ func newApp(dataDir, saveDir string) *App {
 	a.loadDownloadIndex()
 	a.loadRememberedRedditAuth()
 	a.removeOrphanedCookieFiles()
+	if isSectionBuild() {
+		a.state.AppUpdate = UpdateInfo{Status: "current", Detail: "SECTION TEST: manual candidate only"}
+		a.latestRelease = verifiedRelease{}
+		a.state.DistributionURL = ""
+	}
 	a.routes()
 	return a
 }
@@ -205,7 +214,7 @@ func (a *App) routes() {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script><script src=\"/quality.js\"></script><script src=\"/workspace-tabs.js\"></script><script src=\"/startup-update.js\"></script><script src=\"/lifecycle.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
+		_, _ = w.Write([]byte(strings.ReplaceAll(strings.Replace(string(b), "</body>", "<script src=\"/premiere.js\"></script><script src=\"/quality.js\"></script><script src=\"/workspace-tabs.js\"></script><script src=\"/startup-update.js\"></script><script src=\"/lifecycle.js\"></script><script src=\"/sections.js\"></script></body>", 1), "__APP_VERSION__", appVersion)))
 	})
 	// Serve the app's distinctive tab icon from the executable (no extra files needed).
 	for _, asset := range []struct{ path, mediaType string }{
@@ -299,6 +308,7 @@ func (a *App) routes() {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		_, _ = w.Write(b)
 	})
+	a.clipRoutes(mux)
 	a.mux = mux
 }
 
@@ -639,6 +649,13 @@ func (a *App) downloadArgsForAttempt(j *Job, impersonate bool, forceIPv4 ...bool
 		// Resolution and frame rate outrank codec preference: never silently take a smaller AVC stream.
 		args = append(args, "--format-sort-force", "-S", "hasvid,res,fps,hdr:12,lang,+vcodec:avc,+acodec:m4a")
 	}
+	if j.FormatSelector != "" && clipSelectorValid(j.FormatSelector) {
+		for i, v := range args {
+			if v == "-f" && i+1 < len(args) {
+				args[i+1] = j.FormatSelector
+			}
+		}
+	}
 	return append(postDownloadArgs(j, args), j.URL)
 }
 
@@ -714,6 +731,10 @@ func (a *App) runDownload(id string) {
 		a.mu.Unlock()
 	}()
 
+	if j.Task == "section" {
+		a.runClipJob(ctx, id, j)
+		return
+	}
 	if j.Task == "quality" || j.Task == "quality-engine" {
 		a.runQualityTask(ctx, id, j)
 		return

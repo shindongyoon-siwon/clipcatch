@@ -120,6 +120,10 @@ func requestedDownloadKey(raw string) string {
 }
 func cloneDownloadJob(j *Job) Job {
 	cp := *j
+	if j.Clip != nil {
+		spec := *j.Clip
+		cp.Clip = &spec
+	}
 	if j.Quality != nil {
 		q := *j.Quality
 		cp.Quality = &q
