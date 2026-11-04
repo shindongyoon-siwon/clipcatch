@@ -26,26 +26,20 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = refs/heads/test/section-quality-preflight
-          if test -f .candidate/section.part0; then
-            python - <<'PY'
-          import base64, hashlib, lzma, subprocess
+          if test -f .candidate/section-ui-v2.patch.b64; then
+            python - <<'PY_PATCH'
+          import base64, lzma, hashlib, subprocess
           from pathlib import Path
-          expected = ['a4e70e908f0823b2e502fafb01c06ac19393babf7a81eac1fa1e51d5903cf065','97a6e9bf731cadffae8e5aa215e37e63aac572a2459776ebe5daf96f4162af85','9ad82f935cc795de234beb52c9a246ab6647fd3f7112484077668e86d6f4846d','d4a516d3efc7435e3e5c06afc235088250ea11fb4f6d9e5faa6fbdccfbc1abaf','0ae1c38722e1c67dbf0f69bbaa7e6ad823ae59673543dfd188ec3dce70a495fa']
-          parts=[]
-          for i,want in enumerate(expected):
-              s=Path(f'.candidate/section.part{i}').read_text().strip()
-              got=hashlib.sha256(s.encode()).hexdigest()
-              assert got==want, (i,got,want)
-              parts.append(s)
-          patch=lzma.decompress(base64.b64decode(''.join(parts),validate=True))
-          assert hashlib.sha256(patch).hexdigest()=='1da6c2efee658a819167758aeb75b2a7070a3a5a0d31b7adfa1efa8ec762e858'
+          encoded=Path('.candidate/section-ui-v2.patch.b64').read_text().strip()
+          patch=lzma.decompress(base64.b64decode(encoded,validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='b4b56b5c080f6c94d1c0222d2f41b81cf9bd20f4ae5f602ec1c313b3ce66b400'
           subprocess.run(['git','apply','--check','--index','-'],input=patch,check=True)
           subprocess.run(['git','apply','--index','-'],input=patch,check=True)
-          subprocess.run(['git','rm','--']+[f'.candidate/section.part{i}' for i in range(5)],check=True)
-          PY
+          subprocess.run(['git','rm','.candidate/section-ui-v2.patch.b64'],check=True)
+          PY_PATCH
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git commit -m 'feat(test): quality preflight and strictly bounded section-only downloads'
+            git commit -m 'fix(test): split numeric time inputs and explain candidate format limits'
             git push origin HEAD:refs/heads/test/section-quality-preflight
           fi
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -88,6 +82,7 @@ jobs:
           set -euo pipefail
           node --test tests/browser-core.test.mjs tests/feed-core.test.mjs tests/feed-worker.test.mjs tests/transfer-state.test.mjs | tee section-evidence/extension-tests.log
           python tests/section_ui.py
+          python tests/section_popup_ui.py
           git rev-parse HEAD > section-evidence/source-commit.txt
           git archive --format=zip --output=section-evidence/ClipCatch-section-source.zip HEAD
       - uses: actions/upload-artifact@v4
@@ -145,19 +140,43 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows regression failed' }
           go vet -tags bundled_ai ./...
           if ($LASTEXITCODE -ne 0) { throw 'Windows vet failed' }
+      - name: Read-only preflight for reported YouTube link (not a download test)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $tool=Join-Path $env:RUNNER_TEMP 'yt-dlp-section-probe.exe'
+          $sums=Join-Path $env:RUNNER_TEMP 'yt-dlp-section-sums.txt'
+          curl.exe -fL --retry 1 --max-time 60 https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS -o $sums
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic engine checksum unavailable' }
+          curl.exe -fL --retry 1 --max-time 120 https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe -o $tool
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic engine unavailable' }
+          $line=Get-Content $sums | Where-Object { $_ -match '^[0-9a-fA-F]{64}\s+\*?yt-dlp\.exe$' } | Select-Object -First 1
+          if (-not $line) { throw 'Diagnostic checksum not found' }
+          $want=($line -split '\s+')[0].ToLowerInvariant()
+          if ((Get-FileHash $tool -Algorithm SHA256).Hash.ToLowerInvariant() -ne $want) { throw 'Diagnostic checksum mismatch' }
+          & $tool --version | Out-File section-evidence/diagnostic-engine-version.txt -Encoding utf8
+          $env:CLIPCATCH_DIAGNOSTIC_YTDLP=$tool
+          Push-Location src
+          try {
+            go test -run '^TestSectionLiveYouTubePreflight$' -count=1 -timeout=45s -v . 2>&1 | Tee-Object ../section-evidence/youtube-preflight.log
+            if ($LASTEXITCODE -ne 0) { throw 'Read-only diagnostic failed' }
+          } finally {
+            Pop-Location
+            Remove-Item Env:CLIPCATCH_DIAGNOSTIC_YTDLP -ErrorAction SilentlyContinue
+          }
       - name: Build distinct portable SECTION TEST executable
         shell: pwsh
         run: |
-          python tools/windows_resources.py --version 2.1.0-test.1 --section-test
+          python tools/windows_resources.py --version 2.1.0-test.2 --section-test
           if ($LASTEXITCODE -ne 0) { throw 'Candidate resources failed' }
           $env:CGO_ENABLED='0'
           Push-Location src
           try {
-            go build -tags bundled_ai -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=2.1.0-test.1 -X main.appChannel=section-test' -o ../dist-section/ClipCatch-SectionTest.exe .
+            go build -tags bundled_ai -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=2.1.0-test.2 -X main.appChannel=section-test' -o ../dist-section/ClipCatch-SectionTest.exe .
             if ($LASTEXITCODE -ne 0) { throw 'Candidate compilation failed' }
           } finally { Pop-Location }
           $v=(Get-Item dist-section/ClipCatch-SectionTest.exe).VersionInfo
-          if ($v.FileDescription -ne 'ClipCatch SECTION TEST' -or $v.OriginalFilename -ne 'ClipCatch-SectionTest.exe' -or $v.FileVersion -ne '2.1.0-test.1') { throw 'Windows candidate identity mismatch' }
+          if ($v.FileDescription -ne 'ClipCatch SECTION TEST' -or $v.OriginalFilename -ne 'ClipCatch-SectionTest.exe' -or $v.FileVersion -ne '2.1.0-test.2') { throw 'Windows candidate identity mismatch' }
       - name: Verify actual EXE and production data isolation
         shell: pwsh
         run: |
@@ -167,26 +186,28 @@ jobs:
           Copy-Item section-evidence/candidate-build-info.json dist-section/build-info.json
           Copy-Item docs/SECTION_TEST.md dist-section/TEST_SCOPE.md
           @'
-          ClipCatch SECTION TEST 2.1.0-test.1
+          ClipCatch SECTION TEST 2.1.0-test.2
 
           ClipCatch-SectionTest.exe를 실행하세요. 기존 운영판과 TEST2는 교체하지 않습니다.
           주소: http://127.0.0.1:18767
           저장 폴더: 다운로드/ClipCatch-SectionTest
 
           1. 링크 한 개를 넣으면 화질과 부분 다운로드 가능 여부를 확인합니다.
-          2. 화질을 선택하고, 필요한 경우 [구간만 저장]을 체크합니다.
-          3. 시작/종료 시간을 직접 입력하고 다운로드합니다. 임의의 여유 구간은 추가하지 않습니다.
+          2. 화질 아래의 [구간만 저장]을 체크하면 시·분·초 숫자칸이 활성화됩니다.
+          3. 시작/종료 값을 직접 입력하고 다운로드합니다. 임의의 여유 구간은 추가하지 않습니다.
           4. 미지원 또는 확인 불가이면 구간 다운로드는 시작하지 않습니다. 전체 영상으로 자동 전환하지 않습니다.
 
+          이 버전은 UI와 미지원 사유 안내를 수정한 시험판입니다. 새 영상 형식 지원이나 속도 향상을 추가하지 않았습니다.
           정확한 구간은 H.264/AAC MP4로 재압축합니다. 모든 영상 형식과 플랫폼 성공을 보장하지 않습니다.
           레딧은 시험판의 별도 확장 ClipCatch Browser SECTION TEST에서 재생 영상을 선택합니다.
           기존 운영 확장프로그램을 시험판 확장으로 덮어쓰지 마세요.
+          이전 SECTION TEST가 열려 있으면 그 화면의 프로그램 종료를 누른 뒤 새 시험판을 실행하세요.
           정식 배포판이 아닙니다. 자세한 지원 범위는 TEST_SCOPE.md를 확인하세요.
           '@ | Set-Content dist-section/README.txt -Encoding utf8
           git rev-parse HEAD | Set-Content dist-section/SOURCE_COMMIT.txt -Encoding ascii
       - uses: actions/upload-artifact@v4
         with:
-          name: ClipCatch-SECTION-TEST-2.1.0-test.1
+          name: ClipCatch-SECTION-TEST-2.1.0-test.2
           path: dist-section/
           if-no-files-found: error
           retention-days: 14
