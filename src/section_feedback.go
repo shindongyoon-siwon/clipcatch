@@ -62,7 +62,7 @@ func clipChoiceFeedback(c clipChoice) (string, string) {
 		return "source_address", "구간 다운로드에 사용할 수 있는 영상 주소를 확인하지 못했어요."
 	}
 	if c.Video.List == nil && (c.Video.Format.Protocol == "m3u8" || c.Video.Format.Protocol == "m3u8_native") {
-		return "hls_layout", "선택된 스트리밍 구조를 현재 시험판에서 안전하게 나눌 받을 수 없어요."
+		return "hls_layout", "선택된 스트리밍 구조를 현재 시험판에서 안전하게 나누어 받을 수 없어요."
 	}
 	return "partial_response", "선택한 화질에서 전체 영상 없이 부분만 받을 수 있는지 확인하지 못해 중단했어요. 전체로 자동 전환하지 않아요."
 }
