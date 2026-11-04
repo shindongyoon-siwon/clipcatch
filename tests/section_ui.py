@@ -4,9 +4,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, expect
 R=Path(__file__).resolve().parents[1]; W=R/'src/web'
-html=(W/'index.html').read_text().replace('__APP_VERSION__','2.1.0-test.1')
+html=(W/'index.html').read_text().replace('__APP_VERSION__','2.1.0-test.2')
 html=html.replace('</body>',''.join('<script src="/'+s+'"></script>' for s in ['premiere.js','quality.js','workspace-tabs.js','startup-update.js','sections.js'])+'</body>',1)
-state={'version':'2.1.0-test.1','channel':'section-test','phase':'ready','jobs':[],'output_mode':'premiere','app_update':{'status':'current'},'diagnostics':{'checks':[]},'engine':{'channel':'stable'},'save_dir':'section-test'}
+state={'version':'2.1.0-test.2','channel':'section-test','phase':'ready','jobs':[],'output_mode':'premiere','app_update':{'status':'current'},'diagnostics':{'checks':[]},'engine':{'channel':'stable'},'save_dir':'section-test'}
 calls=[]; unsupported=False
 
 def serve(route):
@@ -45,31 +45,49 @@ with sync_playwright() as p:
   page.set_content(inline)
  else:
   page.route('http://127.0.0.1:18767/**',serve);page.goto('http://127.0.0.1:18767/')
+ expect(page.locator('#clipTimes')).to_be_visible()
+ for suffix in ['StartH','StartM','StartS','EndH','EndM','EndS']:expect(page.locator('#clip'+suffix)).to_be_disabled()
+ assert page.locator('.clip-quality-row').bounding_box()['y'] < page.locator('.clip-section-row').bounding_box()['y']
  page.locator('#urlInput').fill('https://www.youtube.com/watch?v=BaW_jenozKc')
  expect(page.locator('#clipInfo')).to_contain_text('confirmed',timeout=5000)
  assert any(path=='/api/clip-preview' for path,_ in calls)
  assert not any(path in ('/api/download','/api/clip-queue') for path,_ in calls)
  page.locator('#clipQuality').select_option('720');expect(page.locator('#clipPartial')).to_be_enabled()
- page.locator('#clipPartial').check();page.locator('#clipStart').fill('01:00.250');page.locator('#clipEnd').fill('01:02.750')
+ page.locator('#clipPartial').check()
+ for suffix in ['StartH','StartM','StartS','EndH','EndM','EndS']:expect(page.locator('#clip'+suffix)).to_be_enabled()
+ page.locator('#clipStartM').fill('1');page.locator('#clipStartS').fill('0.250');page.locator('#clipEndM').fill('1');page.locator('#clipEndS').fill('2.750')
  page.locator('#downloadBtn').click();page.wait_for_timeout(100)
  queued=[body for path,body in calls if path=='/api/clip-queue'];assert len(queued)==1, calls
- assert queued[0]['start']=='01:00.250' and queued[0]['end']=='01:02.750' and queued[0]['partial'] is True and queued[0]['quality']==720,queued
+ assert queued[0]['start']=='60.25' and queued[0]['end']=='62.75' and queued[0]['partial'] is True and queued[0]['quality']==720,queued
  assert not any(path=='/api/download' for path,_ in calls),calls
  unsupported=True;page.locator('#clipQuality').select_option('480');expect(page.locator('#clipInfo')).to_contain_text('unsupported')
  page.locator('#downloadBtn').click();page.wait_for_timeout(50)
  assert sum(path=='/api/clip-queue' for path,_ in calls)==1
  assert not any(path=='/api/download' for path,_ in calls)
+ expect(page.locator('#clipPartial')).to_be_checked()
+ expect(page.locator('#clipPartial')).to_be_enabled()
+ expect(page.locator('#clipStartM')).to_be_disabled()
+ expect(page.locator('#clipStartM')).to_have_value('1')
  expect(page.locator('#urlInput')).to_have_value('https://www.youtube.com/watch?v=BaW_jenozKc')
  unsupported=False;page.locator('#clipRefresh').click();expect(page.locator('#clipInfo')).to_contain_text('confirmed')
- page.locator('#clipEnd').fill('01:00.000');page.locator('#downloadBtn').click();page.wait_for_timeout(50)
+ page.locator('#clipEndS').fill('0');page.locator('#downloadBtn').click();page.wait_for_timeout(50)
  assert sum(path=='/api/clip-queue' for path,_ in calls)==1
- page.locator('#clipEnd').fill('01:02.750');page.locator('#urlInput').press('Control+Enter');page.wait_for_timeout(100)
+ page.locator('#clipEndS').fill('2.750');page.locator('#urlInput').press('Control+Enter');page.wait_for_timeout(100)
  assert sum(path=='/api/clip-queue' for path,_ in calls)==2
  out=Path(os.environ.get('CLIPCATCH_QA_OUTPUT',R/'section-evidence'));out.mkdir(exist_ok=True,parents=True)
  page.screenshot(path=str(out/'section-controls.png'),full_page=True)
+ page.locator('#clipControls').screenshot(path=str(out/'section-controls-detail.png'))
+ page.locator('#clipPartial').uncheck()
+ for suffix in ['StartH','StartM','StartS','EndH','EndM','EndS']:expect(page.locator('#clip'+suffix)).to_be_disabled()
+ expect(page.locator('#clipTimes')).to_be_visible()
+ page.locator('#clipPartial').check()
+ expect(page.locator('#clipStartM')).to_have_value('1')
+ page.locator('#clipStartM').fill('60');page.locator('#downloadBtn').click();page.wait_for_timeout(60)
+ assert sum(path=='/api/clip-queue' for path,_ in calls)==2
+ page.locator('#clipStartM').fill('1')
  page.set_viewport_size({'width':550,'height':950});assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth'), 'horizontal overflow'
  page.screenshot(path=str(out/'section-controls-small.png'),full_page=True)
  assert not errors,errors
- (out/'section-ui.json').write_text(json.dumps({'status':'passed','scope':'actual Chromium UI, mocked metadata','checks':['auto-preview','quality-recheck','exact-times','no-full-fallback','invalid-times','keyboard','retained-link','small-viewport']},indent=2))
+ (out/'section-ui.json').write_text(json.dumps({'status':'passed','scope':'actual Chromium UI, mocked metadata','checks':['auto-preview','quality-recheck','exact-times','no-full-fallback','invalid-times','keyboard','retained-link','small-viewport','visible-disabled-fields','toggle-retains-times','numeric-only','minute-overflow','failure-no-deselect']},indent=2))
  browser.close()
 print('section UI checks passed')

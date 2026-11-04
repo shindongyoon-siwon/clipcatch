@@ -108,6 +108,7 @@ type clipPreviewResponse struct {
 	Qualities []int   `json:"qualities"`
 	Quality   int     `json:"quality"`
 	Partial   string  `json:"partial"`
+	Reason    string  `json:"reason,omitempty"`
 	Notice    string  `json:"notice"`
 	Expires   int64   `json:"expires,omitempty"`
 }
@@ -259,7 +260,7 @@ func (a *App) clipPreview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, clipNotice("unknown"))
 		return
 	}
-	reply := clipPreviewResponse{Partial: "unknown", Notice: clipNotice("unknown"), Qualities: []int{}}
+	reply := clipPreviewResponse{Partial: "unknown", Reason: "unconfirmed", Notice: clipNotice("unknown"), Qualities: []int{}}
 	raw := clean
 	bridge := strings.HasPrefix(r.URL.Path, "/bridge/")
 	if in.MediaURL != "" {
@@ -275,6 +276,7 @@ func (a *App) clipPreview(w http.ResponseWriter, r *http.Request) {
 		raw = media.MediaURL
 	} else if isRedditHost(host) {
 		reply.Partial = "unsupported"
+		reply.Reason = "reddit_browser"
 		reply.Notice = clipNotice("reddit")
 		writeJSON(w, 200, reply)
 		return
@@ -310,13 +312,14 @@ func (a *App) clipPreview(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(m.Entries) > 0 {
 			reply.Partial = "unsupported"
+			reply.Reason = "multiple_videos"
 			reply.Notice = clipNotice("multi")
 			writeJSON(w, 200, reply)
 			return
 		}
 		if m.Live || m.Duration <= 0 || math.IsNaN(m.Duration) || math.IsInf(m.Duration, 0) {
 			reply.Partial = "unsupported"
-			reply.Notice = clipNotice("range")
+			reply.Reason, reply.Notice = clipMetadataFeedback(m.Live)
 			writeJSON(w, 200, reply)
 			return
 		}
@@ -390,7 +393,7 @@ func (a *App) clipPreview(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 	}
 	reply.Partial = choice.Status
-	reply.Notice = choice.Notice
+	reply.Reason, reply.Notice = clipChoiceFeedback(choice)
 	writeJSON(w, 200, reply)
 }
 func clipPrepareInput(ctx context.Context, c *http.Client, f clipFormat) (clipInput, error) {

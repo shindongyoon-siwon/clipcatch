@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='clipcatch-section-native-') as root:
  root=Path(root);identity=root/'build-info.json'
  r=subprocess.run([str(exe),'--build-info',str(identity)],timeout=12)
  assert r.returncode==0
- info=json.loads(identity.read_text());assert info['app']=='clipcatch-section-test' and info['channel']=='section-test' and info['version']=='2.1.0-test.1',info
+ info=json.loads(identity.read_text());assert info['app']=='clipcatch-section-test' and info['channel']=='section-test' and info['version']=='2.1.0-test.2',info
  assert info.get('share_url')=='', info
  (out/'candidate-build-info.json').write_text(json.dumps(info,indent=2))
  env=os.environ.copy();env.update(LOCALAPPDATA=str(root/'local'),USERPROFILE=str(root/'home'),CLIPCATCH_NO_BROWSER='1',CLIPCATCH_SECTION_SAVEDIR=str(root/'clips'))
