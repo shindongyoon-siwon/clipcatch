@@ -69,7 +69,7 @@ with sync_playwright() as p:
  expect(page.locator('#clipStartM')).to_be_disabled()
  expect(page.locator('#clipStartM')).to_have_value('1')
  expect(page.locator('#urlInput')).to_have_value('https://www.youtube.com/watch?v=BaW_jenozKc')
- unsupported=False;page.locator('#clipRefresh').click();expect(page.locator('#clipInfo')).to_contain_text('confirmed')
+ unsupported=False;page.locator('#clipRefresh').click();expect(page.locator('#clipInfo')).to_contain_text('confirmed');expect(page.locator('#clipQuality')).to_have_value('480')
  page.locator('#clipEndS').fill('0');page.locator('#downloadBtn').click();page.wait_for_timeout(50)
  assert sum(path=='/api/clip-queue' for path,_ in calls)==1
  page.locator('#clipEndS').fill('2.750');page.locator('#urlInput').press('Control+Enter');page.wait_for_timeout(100)

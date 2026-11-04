@@ -54,10 +54,10 @@ export function attachClipPopup({message,selection,notice,refresh}) {
   el.addEventListener('keydown',e=>{if(['e','E','+','-',':'].includes(e.key))e.preventDefault();});
   el.addEventListener('paste',e=>{const v=e.clipboardData.getData('text').trim();if(!(el.id.endsWith('S')?/^\d{1,2}(?:\.\d{1,3})?$/:/^\d+$/).test(v))e.preventDefault();});
  });
- async function check(reuse=false){const t=target(),seq=++sequence,old=plan;plan=null;checking=true;$('sectionSave').disabled=true;sync();
+ async function check(reuse=false){const t=target(),seq=++sequence,old=plan,requestedQuality=Number($('sectionQuality').value);plan=null;checking=true;$('sectionSave').disabled=true;sync();
   if(!t.key&&!t.group_id){checking=false;sync();return;}status('\ubd80\ubd84 \uc694\uccad \ud655\uc778 \uc911...');
-  try{const p=await message({kind:'clip-preview',...t,silent:!!document.getElementById('silent')?.checked,quality:Number($('sectionQuality').value),token:reuse?old?.token||'':''});if(seq!==sequence)return;plan=p;checking=false;
-   if(!reuse){$('sectionQuality').replaceChildren(new Option('\ucd5c\uace0\ud654\uc9c8','0'));for(const q of p.qualities||[])$('sectionQuality').add(new Option(q+'p',q));}
+  try{const p=await message({kind:'clip-preview',...t,silent:!!document.getElementById('silent')?.checked,quality:requestedQuality,token:reuse?old?.token||'':''});if(seq!==sequence)return;plan=p;checking=false;
+   if(!reuse){$('sectionQuality').replaceChildren(new Option('\ucd5c\uace0\ud654\uc9c8','0'));for(const q of p.qualities||[])$('sectionQuality').add(new Option(q+'p',q));if(requestedQuality){const menu=$('sectionQuality');if(![...menu.options].some(o=>o.value===String(requestedQuality)))menu.add(new Option(requestedQuality+'p',requestedQuality));menu.value=String(requestedQuality);}}
    status(p.notice);sync();$('sectionSave').disabled=!p.token;
   }catch(e){if(seq===sequence){checking=false;sync();status(e.message);}}}
  $('sectionQuality').onchange=()=>check(true);$('sectionAgain').onclick=()=>check();

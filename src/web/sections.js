@@ -66,12 +66,12 @@
  async function inspect(reuse=false){
   const urls=links(),id=++seq;controller?.abort();controller=new AbortController();
   if(urls.length!==1){plan=null;checking=false;sync();show(urls.length>1?'\ud654\uc9c8\u00b7\uad6c\uac04 \uc120\ud0dd\uc740 \ub9c1\ud06c \ud55c \uac1c\uc529 \ud655\uc778\ud574 \uc8fc\uc138\uc694. \uc5ec\ub7ec \ub9c1\ud06c\ub294 \uae30\uc874 \uc804\uccb4 \uc800\uc7a5\uc774 \uac00\ub2a5\ud574\uc694.':'\ub9c1\ud06c\ub97c \ub123\uc73c\uba74 \uc790\ub3d9\uc73c\ub85c \ud655\uc778\ud574\uc694.');return;}
-  const url=urls[0];const token=reuse&&lastURL===url?plan?.token:'';lastURL=url;
+  const url=urls[0],requestedQuality=Number(q.value);const token=reuse&&lastURL===url?plan?.token:'';lastURL=url;
   checking=true;sync();show('\uc601\uc0c1 \uc815\ubcf4\u00b7\ubd80\ubd84 \uc694\uccad \ud655\uc778 \uc911...');
   try{
-   const data=await post('/api/clip-preview',{url,quality:Number(q.value),token:token||''},controller.signal);
+   const data=await post('/api/clip-preview',{url,quality:requestedQuality,token:token||''},controller.signal);
    if(id!==seq||links()[0]!==url)return;plan=data;checking=false;
-   if(!reuse){q.replaceChildren(new Option('\ucd5c\uace0\ud654\uc9c8','0'));for(const height of data.qualities||[])q.add(new Option(height+'p',String(height)));}
+   if(!reuse){q.replaceChildren(new Option('\ucd5c\uace0\ud654\uc9c8','0'));for(const height of data.qualities||[])q.add(new Option(height+'p',String(height)));if(requestedQuality){if(![...q.options].some(o=>o.value===String(requestedQuality)))q.add(new Option(requestedQuality+'p',String(requestedQuality)));q.value=String(requestedQuality);}}
    sync();
    const duration=data.duration?' \u00b7 '+Math.floor(data.duration/60)+':'+String(Math.floor(data.duration%60)).padStart(2,'0'):'';
    show(data.notice+duration);

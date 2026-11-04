@@ -48,7 +48,7 @@ with sync_playwright() as p:
  page.locator('#sectionOnly').uncheck()
  expect(page.locator('#sectionTimes')).to_be_visible()
  expect(page.locator('#sectionOnly')).not_to_be_checked()
- unsupported=False;page.locator('#sectionAgain').click();expect(page.locator('#sectionInfo')).to_contain_text('confirmed')
+ unsupported=False;page.locator('#sectionAgain').click();expect(page.locator('#sectionInfo')).to_contain_text('confirmed');expect(page.locator('#sectionQuality')).to_have_value('720')
  page.locator('#sectionOnly').check();expect(page.locator('#sectionStartM')).to_have_value('1')
  assert page.evaluate('document.documentElement.scrollWidth<=innerWidth')
  out=Path(os.environ.get('CLIPCATCH_QA_OUTPUT',R/'section-evidence'));out.mkdir(parents=True,exist_ok=True)
