@@ -1,4 +1,4 @@
-name: Section quality TEST2
+name: Section quality candidate
 on:
   push:
     branches: ['test/section-quality-preflight']
@@ -8,28 +8,191 @@ concurrency:
   group: section-quality-test2
   cancel-in-progress: true
 jobs:
-  source-and-tests:
+  source:
+    if: github.ref == 'refs/heads/test/section-quality-preflight'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: true
+      - name: Materialize locally tested source, only on the isolated branch
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/test/section-quality-preflight
+          if test -f .candidate/section.part0; then
+            python - <<'PY'
+          import base64, hashlib, lzma, subprocess
+          from pathlib import Path
+          expected = ['a4e70e908f0823b2e502fafb01c06ac19393babf7a81eac1fa1e51d5903cf065','97a6e9bf731cadffae8e5aa215e37e63aac572a2459776ebe5daf96f4162af85','9ad82f935cc795de234beb52c9a246ab6647fd3f7112484077668e86d6f4846d','d4a516d3efc7435e3e5c06afc235088250ea11fb4f6d9e5faa6fbdccfbc1abaf','0ae1c38722e1c67dbf0f69bbaa7e6ad823ae59673543dfd188ec3dce70a495fa']
+          parts=[]
+          for i,want in enumerate(expected):
+              s=Path(f'.candidate/section.part{i}').read_text().strip()
+              got=hashlib.sha256(s.encode()).hexdigest()
+              assert got==want, (i,got,want)
+              parts.append(s)
+          patch=lzma.decompress(base64.b64decode(''.join(parts),validate=True))
+          assert hashlib.sha256(patch).hexdigest()=='1da6c2efee658a819167758aeb75b2a7070a3a5a0d31b7adfa1efa8ec762e858'
+          subprocess.run(['git','apply','--check','--index','-'],input=patch,check=True)
+          subprocess.run(['git','apply','--index','-'],input=patch,check=True)
+          subprocess.run(['git','rm','--']+[f'.candidate/section.part{i}' for i in range(5)],check=True)
+          PY
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'feat(test): quality preflight and strictly bounded section-only downloads'
+            git push origin HEAD:refs/heads/test/section-quality-preflight
+          fi
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          test "$(tr -d '\r\n ' < VERSION)" = 2.0.0
+  linux-checks:
+    needs: source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.commit }}
           persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version-file: src/go.mod
-      - name: Source snapshot
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Fixture and browser tools
         run: |
-          mkdir -p evidence
-          git archive --format=zip --output=evidence/ClipCatch-section-source.zip HEAD
-          git rev-parse HEAD > evidence/source-commit.txt
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y ffmpeg fonts-noto-cjk
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+          mkdir -p section-evidence
+      - name: Regression, race and actual MP4/HLS partial-transfer proof
+        working-directory: src
+        env:
+          CLIPCATCH_SECTION_MEDIA_TEST: '1'
+        run: |
+          set -euo pipefail
+          go test -race -count=1 -timeout=5m -v ./... | tee ../section-evidence/linux-tests.log
+          go vet ./...
+      - name: Extension and actual browser controls
+        run: |
+          set -euo pipefail
+          node --test tests/browser-core.test.mjs tests/feed-core.test.mjs tests/feed-worker.test.mjs tests/transfer-state.test.mjs | tee section-evidence/extension-tests.log
+          python tests/section_ui.py
+          git rev-parse HEAD > section-evidence/source-commit.txt
+          git archive --format=zip --output=section-evidence/ClipCatch-section-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClipCatch-section-Linux-evidence
+          path: section-evidence/
+          retention-days: 14
+  windows-candidate:
+    needs: source
+    runs-on: windows-latest
+    timeout-minutes: 25
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.source.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify official media tools and pinned existing bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force section-evidence, src/quality_bundle, dist-section | Out-Null
+          $archive=Join-Path $env:RUNNER_TEMP 'section-ffmpeg.zip'
+          $url='https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+          $sums=(Invoke-WebRequest ($url+'.sha256') -TimeoutSec 30).Content
+          $match=[regex]::Match([string]$sums,'(?i)[a-f0-9]{64}')
+          if (-not $match.Success) { throw 'No FFmpeg verification hash' }
+          curl.exe -fL --retry 2 --max-time 180 $url -o $archive
+          if ($LASTEXITCODE -ne 0) { throw 'FFmpeg download failed' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $match.Value.ToLowerInvariant()) { throw 'FFmpeg SHA256 mismatch' }
+          Expand-Archive $archive -DestinationPath (Join-Path $env:RUNNER_TEMP 'section-ffmpeg')
+          $ff=Get-ChildItem (Join-Path $env:RUNNER_TEMP 'section-ffmpeg') -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          if (-not $ff) { throw 'FFmpeg executable missing' }
+          $ff.DirectoryName | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          & $ff.FullName -version | Out-File section-evidence/ffmpeg-version.txt -Encoding utf8
+          curl.exe -fL --retry 2 --max-time 180 https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip -o src/quality_bundle/windows.zip
+          if ($LASTEXITCODE -ne 0) { throw 'Existing bundle download failed' }
+          if ((Get-FileHash src/quality_bundle/windows.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d') { throw 'Existing bundle checksum mismatch' }
+          python -m pip install Pillow==11.3.0
+          if ($LASTEXITCODE -ne 0) { throw 'Pillow install failed' }
+      - name: Native Windows unit and actual media regression
+        working-directory: src
+        shell: pwsh
+        env:
+          CLIPCATCH_SECTION_MEDIA_TEST: '1'
+        run: |
+          go test -tags bundled_ai -count=1 -timeout=6m -v ./... 2>&1 | Tee-Object ../section-evidence/windows-tests.log
+          if ($LASTEXITCODE -ne 0) { throw 'Windows regression failed' }
+          go vet -tags bundled_ai ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Windows vet failed' }
+      - name: Build distinct portable SECTION TEST executable
+        shell: pwsh
+        run: |
+          python tools/windows_resources.py --version 2.1.0-test.1 --section-test
+          if ($LASTEXITCODE -ne 0) { throw 'Candidate resources failed' }
+          $env:CGO_ENABLED='0'
+          Push-Location src
+          try {
+            go build -tags bundled_ai -trimpath '-ldflags=-s -w -H windowsgui -X main.appVersion=2.1.0-test.1 -X main.appChannel=section-test' -o ../dist-section/ClipCatch-SectionTest.exe .
+            if ($LASTEXITCODE -ne 0) { throw 'Candidate compilation failed' }
+          } finally { Pop-Location }
+          $v=(Get-Item dist-section/ClipCatch-SectionTest.exe).VersionInfo
+          if ($v.FileDescription -ne 'ClipCatch SECTION TEST' -or $v.OriginalFilename -ne 'ClipCatch-SectionTest.exe' -or $v.FileVersion -ne '2.1.0-test.1') { throw 'Windows candidate identity mismatch' }
+      - name: Verify actual EXE and production data isolation
+        shell: pwsh
+        run: |
+          python tests/section_windows.py dist-section/ClipCatch-SectionTest.exe section-evidence
+          if ($LASTEXITCODE -ne 0) { throw 'Native candidate verification failed' }
+          Copy-Item section-evidence/SHA256SUMS dist-section/SHA256SUMS
+          Copy-Item section-evidence/candidate-build-info.json dist-section/build-info.json
+          Copy-Item docs/SECTION_TEST.md dist-section/TEST_SCOPE.md
+          @'
+          ClipCatch SECTION TEST 2.1.0-test.1
+
+          ClipCatch-SectionTest.exe를 실행하세요. 기존 운영판과 TEST2는 교체하지 않습니다.
+          주소: http://127.0.0.1:18767
+          저장 폴더: 다운로드/ClipCatch-SectionTest
+
+          1. 링크 한 개를 넣으면 화질과 부분 다운로드 가능 여부를 확인합니다.
+          2. 화질을 선택하고, 필요한 경우 [구간만 저장]을 체크합니다.
+          3. 시작/종료 시간을 직접 입력하고 다운로드합니다. 임의의 여유 구간은 추가하지 않습니다.
+          4. 미지원 또는 확인 불가이면 구간 다운로드는 시작하지 않습니다. 전체 영상으로 자동 전환하지 않습니다.
+
+          정확한 구간은 H.264/AAC MP4로 재압축합니다. 모든 영상 형식과 플랫폼 성공을 보장하지 않습니다.
+          레딧은 시험판의 별도 확장 ClipCatch Browser SECTION TEST에서 재생 영상을 선택합니다.
+          기존 운영 확장프로그램을 시험판 확장으로 덮어쓰지 마세요.
+          정식 배포판이 아닙니다. 자세한 지원 범위는 TEST_SCOPE.md를 확인하세요.
+          '@ | Set-Content dist-section/README.txt -Encoding utf8
+          git rev-parse HEAD | Set-Content dist-section/SOURCE_COMMIT.txt -Encoding ascii
       - uses: actions/upload-artifact@v4
         with:
-          name: ClipCatch-section-source
-          path: evidence/
+          name: ClipCatch-SECTION-TEST-2.1.0-test.1
+          path: dist-section/
+          if-no-files-found: error
           retention-days: 14
-      - name: Baseline and feature checks
-        working-directory: src
-        run: |
-          go test -race -count=1 -timeout=5m ./...
-          go vet ./...
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ClipCatch-section-Windows-evidence
+          path: section-evidence/
+          retention-days: 14
