@@ -1,0 +1,35 @@
+name: Section quality TEST2
+on:
+  push:
+    branches: ['test/section-quality-preflight']
+permissions:
+  contents: read
+concurrency:
+  group: section-quality-test2
+  cancel-in-progress: true
+jobs:
+  source-and-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+      - name: Source snapshot
+        run: |
+          mkdir -p evidence
+          git archive --format=zip --output=evidence/ClipCatch-section-source.zip HEAD
+          git rev-parse HEAD > evidence/source-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipCatch-section-source
+          path: evidence/
+          retention-days: 14
+      - name: Baseline and feature checks
+        working-directory: src
+        run: |
+          go test -race -count=1 -timeout=5m ./...
+          go vet ./...
